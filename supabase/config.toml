@@ -1,0 +1,48 @@
+# Supabase local development config for EduHelp_AI.
+#
+# This is written for a recent Supabase CLI. If `supabase start` complains about
+# unknown/missing fields (the schema changes between CLI versions), regenerate it:
+#   1. delete this file
+#   2. run `supabase init` (it keeps the existing migrations/ and seed.sql)
+#   3. re-apply the auth tweaks below (enable_confirmations = false for local dev)
+
+project_id = "nexuslearning"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+# Postgres major version of the local container. Change if your CLI does not
+# ship this version's image (e.g. 15).
+major_version = 17
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+# Local mailbox UI for confirmation/magic-link emails (http://127.0.0.1:54324).
+[inbucket]
+enabled = true
+port = 54324
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000", "http://localhost:3000"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+# Disabled for local dev so email/password sign-up works without an SMTP server.
+enable_confirmations = false
