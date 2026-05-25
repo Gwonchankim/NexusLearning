@@ -13,6 +13,7 @@ import { isStartable } from '@/lib/graph'
 import { createSession } from './create-session'
 import { loadRecommendation } from './recommend'
 import { loadGrowth } from '@/app/dashboard/growth'
+import { logEvent } from '@/lib/analytics/log-event'
 
 async function requireUser() {
   const supabase = await createClient()
@@ -42,6 +43,9 @@ export async function startConceptSession(conceptId: string) {
   const { rec } = await loadRecommendation()
   if (!isStartable(rec, conceptId)) throw new Error('concept not startable')
   const source = rec.frontier.includes(conceptId) ? 'frontier' : 'fallback'
+  // Emit click intent BEFORE createSession so a failed/abandoned start still counts.
+  // (best-effort awaited; never wrap redirect below in try/catch — it throws by design.)
+  await logEvent('recommendation_clicked', { conceptId, source })
   const id = await createSession('practice', { focusConceptId: conceptId, source })
   redirect(`/learn?sessionId=${id}`)
 }
@@ -54,6 +58,8 @@ export async function startQuestSession(conceptId: string) {
   const item = g.quest.items.find((i) => i.conceptId === conceptId)
   if (!item) throw new Error('concept not in today quest')
   const source = item.kind === 'new' ? 'frontier' : 'fallback'
+  // Emit click intent BEFORE createSession (best-effort awaited).
+  await logEvent('quest_started', { conceptId, kind: item.kind })
   const id = await createSession('practice', { focusConceptId: conceptId, source })
   redirect(`/learn?sessionId=${id}`)
 }
