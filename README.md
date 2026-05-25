@@ -4,7 +4,7 @@
 
 스택: **Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Supabase (Postgres · Auth · RLS)**
 
-> 현재 단계는 **PR3 (학습 루프)** 입니다. 온보딩 진단·학습 세션·서버측 채점·숙련도(EWMA)/복습 스케줄(SM-2-lite)이 동작합니다. 지식맵/추천·성장 페이오프·AI 실시간 생성·결제는 아직 포함되어 있지 않습니다.
+> 현재 단계는 **PR4 (지식맵 + 프런티어 추천)** 입니다. PR3 학습 루프 위에 선수관계 DAG 지식맵과 frontier 추천("다음 학습 개념")·전용 학습 진입(`startConceptSession`)이 더해졌습니다. 성장 페이오프·AI 실시간 생성·결제는 아직 포함되어 있지 않습니다.
 
 ---
 
@@ -149,6 +149,20 @@ npm run db:reset                                          # seed.sql → seed_pr
 
 ---
 
+## 지식맵 & 추천 (PR4)
+
+대시보드에서 선수관계 DAG(공통수학1·다항식 15개념)를 경량 SVG 지식맵으로 보여주고, `effectiveMastery` 기반 **frontier 추천**으로 "다음 학습 개념"을 제시합니다. DB 마이그레이션·신규 의존성은 없습니다.
+
+- **개념 상태(4단계)**: `locked`(선수 미충족) · `available`(선수 충족·미학습) · `in_progress`(학습 중) · `mastered`(숙련도 ≥ 0.7). 모두 망각 decay가 반영된 `effectiveMastery` 기준입니다.
+- **frontier**: 선수개념이 모두 기준 이상이고 자신은 아직 기준 미만인 개념(= `available` + `in_progress`). 정렬은 선수 충족도↓ → 자기 숙련도↑ → 복습 도래 → `order_index`.
+- **추천 카드 = 유일한 학습 진입점**: top-1 개념을 추천합니다. frontier가 있으면 "이 개념 학습", 모두 숙달해 비어 있으면 복습 대상(복습 도래 우선 → 최저 숙련도)을 "복습 시작"으로 제시합니다. 지식맵 노드 자체는 클릭 동작이 없고 상태 이해용입니다.
+- **`startConceptSession(conceptId)`**: 추천 CTA가 호출하는 Server Action. 클라이언트가 보낸 `conceptId`를 서버에서 다시 검증(`lib/graph`의 `isStartable`)해 `locked`/비추천을 거부하고, 해당 개념만 출제하는 focus 세션을 만들어 `/learn`으로 이동합니다.
+- **평균 숙련도 카드 vs 지식맵**: 평균 숙련도 카드는 **학습한 개념**(`concept_mastery` 행이 있는 개념)만의 평균이고, 지식맵은 **전체 15개념**의 상태를 보여줍니다 — 분모가 다릅니다.
+
+순수 로직은 `lib/graph`(Vitest)로 검증합니다. 시각화는 의존성 없이 SVG/CSS로 구현했고 **React Flow는 도입하지 않았습니다**(후속 고도화 후보). `answer/solution`의 DB 레벨 컬럼 보호는 PR3와 동일하게 후속 보안 PR 과제입니다(이번 범위 밖).
+
+---
+
 ## 프로젝트 구조
 
 ```
@@ -156,9 +170,9 @@ app/
 ├── layout.tsx           # 루트 레이아웃 (메타데이터)
 ├── page.tsx             # "/" → /dashboard 리디렉트
 ├── login/               # 이메일/비밀번호 로그인·회원가입 (page + actions)
-├── dashboard/page.tsx   # 숙련도 개요 + 복습 도래 + 세션 시작 (mastery 없으면 온보딩 안내)
+├── dashboard/           # 대시보드: page(개요+지식맵+추천 카드) · KnowledgeMap(정적 SVG DAG)
 ├── onboarding/          # 학년·목표 + 미니 진단 시작 (page + actions)
-├── learn/               # 학습 세션: page(조회/resume) · LearnSession(client) · actions · create-session(helper)
+├── learn/               # 학습 세션: page(조회/resume) · LearnSession(client) · actions · create-session · recommend(그래프 헬퍼)
 └── admin/               # 콘텐츠 검수 파이프라인 (PR2)
 lib/
 ├── supabase/            # 브라우저/서버 Supabase 클라이언트 (server는 async cookies)
@@ -166,7 +180,7 @@ lib/
 ├── adaptive/index.ts    # 숙련도 엔진: EWMA + 망각 decay (PLAN §5.1, 순수, Vitest)
 ├── scheduler/index.ts   # SM-2-lite 스케줄러 (PLAN §5.2, 순수, Vitest)
 ├── session/select.ts    # 세션 문제 선정 (순수, Vitest)
-└── graph/index.ts       # 프런티어 추천 타입 골격 (PLAN §5.3, 구현 PR4)
+└── graph/index.ts       # 선수관계 DAG · frontier 추천 · 상태 분류 (PLAN §5.3, 순수, Vitest)
 proxy.ts                 # Next 16 Proxy: 세션 갱신 + 라우트 가드(/dashboard·/admin·/learn·/onboarding)
 supabase/                # 위 "데이터베이스" 참고 (migrations 0001~0005 + seed.sql · seed_problems.sql)
 ```
@@ -180,7 +194,7 @@ npm run dev        # 개발 서버
 npm run build      # 프로덕션 빌드
 npm run start      # 빌드 결과 실행
 npm run lint       # ESLint
-npm run test       # Vitest 단위테스트 (grading / adaptive / scheduler / session)
+npm run test       # Vitest 단위테스트 (grading / adaptive / scheduler / session / graph)
 npm run db:start   # 로컬 Supabase 기동 (Docker 필요)
 npm run db:status  # 로컬 Supabase 상태/접속 정보
 npm run db:reset   # 마이그레이션 재적용 + seed 재실행

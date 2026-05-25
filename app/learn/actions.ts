@@ -7,7 +7,9 @@ import { updateMastery, type Difficulty, type MasteryState } from '@/lib/adaptiv
 import { updateSchedule, SCHEDULER_DEFAULTS, type ReviewState } from '@/lib/scheduler'
 import type { SessionMode } from '@/lib/session/select'
 import { parseProblemIds, checkSubmission } from '@/lib/session/validate'
+import { isStartable } from '@/lib/graph'
 import { createSession } from './create-session'
+import { loadRecommendation } from './recommend'
 
 async function requireUser() {
   const supabase = await createClient()
@@ -27,6 +29,17 @@ export async function startPracticeSession() {
 
 export async function startDiagnosticSession() {
   const id = await createSession('diagnostic')
+  redirect(`/learn?sessionId=${id}`)
+}
+
+// Start a focused practice session for a frontier/fallback recommendation.
+// The conceptId comes from the client, so the server recomputes the
+// recommendation and rejects anything that isn't currently startable.
+export async function startConceptSession(conceptId: string) {
+  const { rec } = await loadRecommendation()
+  if (!isStartable(rec, conceptId)) throw new Error('concept not startable')
+  const source = rec.frontier.includes(conceptId) ? 'frontier' : 'fallback'
+  const id = await createSession('practice', { focusConceptId: conceptId, source })
   redirect(`/learn?sessionId=${id}`)
 }
 

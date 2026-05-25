@@ -34,6 +34,7 @@ export interface SelectInput {
   mode: SessionMode
   now?: Date
   limit?: number
+  focusConceptId?: string // when set, serve only this concept's problems (easiest first)
 }
 
 const DEFAULT_LIMIT: Record<SessionMode, number> = { practice: 8, diagnostic: 6 }
@@ -58,6 +59,12 @@ export function selectSessionProblems(input: SelectInput): string[] {
     arr.sort(
       (a, b) => DIFFICULTY_RANK[a.difficulty] - DIFFICULTY_RANK[b.difficulty] || a.id.localeCompare(b.id),
     )
+  }
+
+  // Frontier-recommended focus: a single concept's problems, easiest first (PR4).
+  // Bypasses round-robin / per-concept cap; returns [] when the concept has none.
+  if (input.focusConceptId) {
+    return (byConcept.get(input.focusConceptId) ?? []).slice(0, limit).map((p) => p.id)
   }
 
   const conceptsWithProblems = concepts.filter((c) => (byConcept.get(c.id)?.length ?? 0) > 0)

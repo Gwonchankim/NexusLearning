@@ -90,3 +90,30 @@ describe('practice mode — limits', () => {
     expect(new Set(picks).size).toBe(picks.length)
   })
 })
+
+describe('practice mode — focus concept (PR4)', () => {
+  it('serves only the focused concept, easiest first, up to the limit', () => {
+    const picks = selectSessionProblems({
+      concepts,
+      progress: [],
+      reviewedProblems, // c1: p1a(easy), p1b(medium); c2: p2a; c3: p3a(easy), p3b(hard)
+      mode: 'practice',
+      now: NOW,
+      focusConceptId: 'c1',
+      limit: 5,
+    })
+    expect(picks).toEqual(['p1a', 'p1b']) // bypasses the 2-per-concept round-robin cap
+  })
+
+  it('returns an empty list when the focused concept has no reviewed problems', () => {
+    const picks = selectSessionProblems({
+      concepts,
+      progress: [],
+      reviewedProblems,
+      mode: 'practice',
+      now: NOW,
+      focusConceptId: 'nope',
+    })
+    expect(picks).toEqual([])
+  })
+})
