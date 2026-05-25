@@ -5,8 +5,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { selectSessionProblems, type SessionMode } from '@/lib/session/select'
 
+export interface CreateSessionOptions {
+  focusConceptId?: string // restrict the session to a single concept (frontier/fallback)
+  source?: 'frontier' | 'fallback'
+}
+
 /** Create a learning session for the current user and return its id. */
-export async function createSession(mode: SessionMode): Promise<string> {
+export async function createSession(
+  mode: SessionMode,
+  opts?: CreateSessionOptions,
+): Promise<string> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -24,6 +32,7 @@ export async function createSession(mode: SessionMode): Promise<string> {
 
   const problemIds = selectSessionProblems({
     mode,
+    focusConceptId: opts?.focusConceptId,
     concepts: (concepts ?? []).map((c) => ({ id: c.id, orderIndex: c.order_index })),
     reviewedProblems: (problems ?? []).map((p) => ({
       id: p.id,
@@ -38,9 +47,18 @@ export async function createSession(mode: SessionMode): Promise<string> {
     })),
   })
 
+  // Don't create an empty focused session if the concept has no reviewed problems.
+  if (opts?.focusConceptId && problemIds.length === 0) {
+    throw new Error('no reviewed problems for concept')
+  }
+
+  const summary = opts?.focusConceptId
+    ? { mode, problemIds, focusConceptId: opts.focusConceptId, source: opts.source }
+    : { mode, problemIds }
+
   const { data: session, error } = await supabase
     .from('learning_sessions')
-    .insert({ user_id: user.id, summary: { mode, problemIds } })
+    .insert({ user_id: user.id, summary })
     .select('id')
     .single()
 
