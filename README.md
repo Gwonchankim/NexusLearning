@@ -90,6 +90,48 @@ RLS 요약:
 
 ---
 
+## 관리자 검수 파이프라인 (PR2)
+
+학생에게는 `reviewed=true` 문제만 노출됩니다. 문제는 **AI 초안 → import(`reviewed=false`) → 관리자 승인** 흐름으로 만들어집니다.
+
+### 관리자 지정
+관리자는 `public.admin_users` 테이블로 관리합니다(자기 승격 불가). Supabase Studio(<http://127.0.0.1:54323>) 또는 psql로:
+
+```sql
+insert into public.admin_users (user_id) values ('<auth.users.id 값>');
+```
+
+### 관리자 화면
+- `/admin` — 검수 대시보드(개념별 reviewed/pending, 목표 진행도)
+- `/admin/import` — JSON 붙여넣기 import(멱등: 같은 `import_key` 재import는 draft만 갱신하고 승인본은 보호)
+- `/admin/review` — 미검수 목록 → 승인(`reviewed=true`) / 반려(삭제) / 편집 후 승인
+
+### 콘텐츠 import (로컬 스크립트)
+초안은 `content/problems/*.json`에 둡니다(`source:"ai"`, `import_key` 필수). 일괄 import는 관리자 전용 RPC `public.import_problems(jsonb)`만 호출하며 결과는 항상 `reviewed=false`입니다.
+
+```bash
+# 값은 `npx supabase status -o env` 참고. 키는 절대 커밋하지 마세요.
+SUPABASE_ANON_KEY=<anon> ADMIN_EMAIL=<관리자 이메일> ADMIN_PASSWORD=<비밀번호> \
+  node scripts/import-problems.mjs
+```
+
+### 재현 가능한 reviewed seed (`db:reset` 후에도 30개 이상)
+승인된 문제를 `supabase/seed_problems.sql`로 덤프해 커밋하면 `db:reset` 후에도 재현됩니다.
+
+```bash
+SUPABASE_ANON_KEY=<anon> node scripts/dump-reviewed.mjs   # supabase/seed_problems.sql 생성
+npm run db:reset                                          # seed.sql → seed_problems.sql 순서로 적용
+```
+
+`config.toml`의 `[db.seed] sql_paths`가 `seed.sql`(개념) 다음에 `seed_problems.sql`(승인 문제)을 적용합니다.
+
+### 정답 표기 / 채점 정책 경계
+- PR2는 `answer`를 **canonical answer**(대표 정답) 문자열로 **저장만** 합니다.
+- `expression` 동치식 비교, 공백·항·인수 순서 정규화, `O/X` 입력 정규화(`o`, `O`, `ㅇ`, `예` 등 허용)는 **PR3 채점 정책**에서 다룹니다.
+- 즉, PR2의 책임 범위는 **검수 → 승인 → seed 재현 파이프라인**까지이며, 실제 채점/정답 매칭 로직은 포함하지 않습니다.
+
+---
+
 ## 프로젝트 구조
 
 ```
