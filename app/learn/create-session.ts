@@ -4,6 +4,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { selectSessionProblems, type SessionMode } from '@/lib/session/select'
+import { effectiveMastery } from '@/lib/adaptive'
 
 export interface CreateSessionOptions {
   focusConceptId?: string // restrict the session to a single concept (frontier/fallback)
@@ -47,14 +48,42 @@ export async function createSession(
     })),
   })
 
-  // Don't create an empty focused session if the concept has no reviewed problems.
-  if (opts?.focusConceptId && problemIds.length === 0) {
-    throw new Error('no reviewed problems for concept')
+  // Never create an empty session (focus OR general) — guards against a dead
+  // /learn?sessionId with no problems.
+  if (problemIds.length === 0) {
+    throw new Error(
+      opts?.focusConceptId ? 'no reviewed problems for concept' : 'no problems available for session',
+    )
   }
 
-  const summary = opts?.focusConceptId
-    ? { mode, problemIds, focusConceptId: opts.focusConceptId, source: opts.source }
-    : { mode, problemIds }
+  // startMastery snapshot: effectiveMastery at session start for the session's
+  // distinct concepts (focus -> the focus concept; general -> the picked problems').
+  const conceptById = new Map((problems ?? []).map((p) => [p.id as string, p.concept_id as string]))
+  const progressByConcept = new Map(
+    (progress ?? []).map((p) => [
+      p.concept_id as string,
+      { mastery: p.mastery as number, lastReviewedAt: (p.last_reviewed_at as string | null) ?? null },
+    ]),
+  )
+  const sessionConceptIds = opts?.focusConceptId
+    ? [opts.focusConceptId]
+    : [...new Set(problemIds.map((id) => conceptById.get(id)).filter((c): c is string => Boolean(c)))]
+
+  const now = new Date()
+  const startMastery: Record<string, number> = {}
+  for (const c of sessionConceptIds) {
+    const pr = progressByConcept.get(c)
+    startMastery[c] = pr
+      ? effectiveMastery({ mastery: pr.mastery, attemptsCount: 0, lastReviewedAt: pr.lastReviewedAt }, now)
+      : 0
+  }
+
+  const summary = {
+    mode,
+    problemIds,
+    ...(opts?.focusConceptId ? { focusConceptId: opts.focusConceptId, source: opts.source } : {}),
+    startMastery,
+  }
 
   const { data: session, error } = await supabase
     .from('learning_sessions')

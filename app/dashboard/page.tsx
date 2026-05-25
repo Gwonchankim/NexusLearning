@@ -6,6 +6,9 @@ import { createClient } from '@/lib/supabase/server'
 import { loadRecommendation } from '@/app/learn/recommend'
 import type { NodeStatus } from '@/lib/graph'
 import KnowledgeMap from './KnowledgeMap'
+import GrowthCards from './GrowthCards'
+import RecentSparkline from './RecentSparkline'
+import { loadGrowth } from './growth'
 
 function pct(v: number): string {
   return `${Math.round(v * 100)}%`
@@ -36,6 +39,7 @@ export default async function DashboardPage() {
   const { hasProgress, avgEffectiveMastery, dueCount, concepts, rec, nameById, effByConcept } =
     await loadRecommendation()
   const recommended = rec.recommended
+  const growth = hasProgress ? await loadGrowth() : null
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-12">
@@ -72,6 +76,17 @@ export default async function DashboardPage() {
               <p className="mt-1 text-3xl font-semibold">{dueCount}</p>
             </div>
           </section>
+
+          {growth && <GrowthCards growth={growth} />}
+
+          {growth && growth.recent.length >= 2 && (
+            <section className="mt-6 rounded-lg border border-gray-200 p-4">
+              <p className="text-xs uppercase tracking-wide text-gray-400">최근 성장 변화</p>
+              <div className="mt-2">
+                <RecentSparkline recent={growth.recent} />
+              </div>
+            </section>
+          )}
 
           {recommended && (
             <section className="mt-6 rounded-lg border border-amber-300 bg-amber-50 p-6">

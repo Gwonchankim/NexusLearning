@@ -3,13 +3,15 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { gradeAnswer, type AnswerType } from '@/lib/grading'
-import { updateMastery, type Difficulty, type MasteryState } from '@/lib/adaptive'
+import { updateMastery, effectiveMastery, type Difficulty, type MasteryState } from '@/lib/adaptive'
+import { summarizeSessionDeltas } from '@/lib/growth'
 import { updateSchedule, SCHEDULER_DEFAULTS, type ReviewState } from '@/lib/scheduler'
 import type { SessionMode } from '@/lib/session/select'
 import { parseProblemIds, checkSubmission } from '@/lib/session/validate'
 import { isStartable } from '@/lib/graph'
 import { createSession } from './create-session'
 import { loadRecommendation } from './recommend'
+import { loadGrowth } from '@/app/dashboard/growth'
 
 async function requireUser() {
   const supabase = await createClient()
@@ -39,6 +41,18 @@ export async function startConceptSession(conceptId: string) {
   const { rec } = await loadRecommendation()
   if (!isStartable(rec, conceptId)) throw new Error('concept not startable')
   const source = rec.frontier.includes(conceptId) ? 'frontier' : 'fallback'
+  const id = await createSession('practice', { focusConceptId: conceptId, source })
+  redirect(`/learn?sessionId=${id}`)
+}
+
+// Start a focused session for a TODAY-QUEST item (new or review/weak). The
+// quest review items aren't necessarily "startable" via the frontier-only
+// isStartable check, so this validates membership in the recomputed quest.
+export async function startQuestSession(conceptId: string) {
+  const g = await loadGrowth()
+  const item = g.quest.items.find((i) => i.conceptId === conceptId)
+  if (!item) throw new Error('concept not in today quest')
+  const source = item.kind === 'new' ? 'frontier' : 'fallback'
   const id = await createSession('practice', { focusConceptId: conceptId, source })
   redirect(`/learn?sessionId=${id}`)
 }
@@ -188,6 +202,9 @@ export interface SessionSummary {
   problemCount: number
   correctCount: number
   durationMs: number | null
+  conceptDeltas: { conceptId: string; name: string; before: number; after: number; delta: number }[]
+  sessionMasteryDelta: number | null
+  nextReviewAt: string | null
 }
 
 export async function endSession(sessionId: string): Promise<SessionSummary> {
@@ -202,12 +219,13 @@ export async function endSession(sessionId: string): Promise<SessionSummary> {
 
   const { data: attempts } = await supabase
     .from('attempts')
-    .select('correct')
+    .select('correct, concept_id')
     .eq('session_id', sessionId)
     .eq('user_id', user.id)
 
-  const problemCount = attempts?.length ?? 0
-  const correctCount = (attempts ?? []).filter((a) => a.correct).length
+  const rows = attempts ?? []
+  const problemCount = rows.length
+  const correctCount = rows.filter((a) => a.correct).length
   const endedAt = new Date()
   const durationMs = session.started_at
     ? endedAt.getTime() - new Date(session.started_at).getTime()
@@ -216,8 +234,53 @@ export async function endSession(sessionId: string): Promise<SessionSummary> {
   const prev = (session.summary ?? {}) as {
     mode?: SessionMode
     problemIds?: string[]
+    startMastery?: Record<string, number>
   }
-  const summary = { ...prev, problemCount, correctCount, durationMs }
+
+  // Distinct concepts actually attempted this session -> after mastery + names + earliest next review.
+  const attemptedConcepts = [
+    ...new Set(rows.map((a) => a.concept_id).filter((c): c is string => Boolean(c))),
+  ]
+  const afterMastery: Record<string, number> = {}
+  const nameById: Record<string, string> = {}
+  let nextReviewAt: string | null = null
+  if (attemptedConcepts.length > 0) {
+    const [{ data: cm }, { data: cs }] = await Promise.all([
+      supabase
+        .from('concept_mastery')
+        .select('concept_id, mastery, last_reviewed_at, next_review_at')
+        .eq('user_id', user.id)
+        .in('concept_id', attemptedConcepts),
+      supabase.from('concepts').select('id, name').in('id', attemptedConcepts),
+    ])
+    for (const m of cm ?? []) {
+      afterMastery[m.concept_id] = effectiveMastery(
+        { mastery: m.mastery, attemptsCount: 0, lastReviewedAt: m.last_reviewed_at },
+        endedAt,
+      )
+      if (m.next_review_at && (nextReviewAt === null || m.next_review_at < nextReviewAt)) {
+        nextReviewAt = m.next_review_at
+      }
+    }
+    for (const c of cs ?? []) nameById[c.id] = c.name
+  }
+
+  const { conceptDeltas, sessionMasteryDelta } = summarizeSessionDeltas({
+    conceptIds: attemptedConcepts,
+    startMastery: prev.startMastery,
+    afterMastery,
+  })
+
+  // Persist slug-only conceptDeltas (names are joined only for the UI return).
+  const summary = {
+    ...prev,
+    problemCount,
+    correctCount,
+    durationMs,
+    conceptDeltas,
+    sessionMasteryDelta,
+    nextReviewAt,
+  }
 
   const { error } = await supabase
     .from('learning_sessions')
@@ -231,5 +294,8 @@ export async function endSession(sessionId: string): Promise<SessionSummary> {
     problemCount,
     correctCount,
     durationMs,
+    conceptDeltas: conceptDeltas.map((d) => ({ ...d, name: nameById[d.conceptId] ?? d.conceptId })),
+    sessionMasteryDelta,
+    nextReviewAt,
   }
 }

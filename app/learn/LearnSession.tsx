@@ -96,9 +96,20 @@ export default function LearnSession({
 
   if (summary) {
     const rate = summary.problemCount ? summary.correctCount / summary.problemCount : 0
+    const d = summary.sessionMasteryDelta
+    const ppd = d == null ? 0 : Math.round(d * 100)
+    const headline =
+      d == null
+        ? null
+        : ppd > 0
+          ? `이해도 +${ppd}%p 올랐어요`
+          : d < 0
+            ? '복습으로 기반을 다졌어요'
+            : '기반을 유지했어요'
     return (
       <Shell>
         <h1 className="text-2xl font-semibold">세션 완료 🎉</h1>
+        {headline && <p className="mt-2 text-lg font-medium text-blue-700">{headline}</p>}
         <div className="mt-6 rounded-lg border border-gray-200 p-6">
           <p className="text-sm text-gray-500">
             {mode === 'diagnostic' ? '미니 진단' : '학습 세션'} 결과
@@ -108,6 +119,39 @@ export default function LearnSession({
           </p>
           <p className="text-xs uppercase tracking-wide text-gray-400">정답 / 전체 ({pct(rate)})</p>
         </div>
+
+        {summary.conceptDeltas.length > 0 && (
+          <div className="mt-4 space-y-3 rounded-lg border border-gray-200 p-4">
+            <p className="text-xs uppercase tracking-wide text-gray-400">개념별 변화</p>
+            {summary.conceptDeltas.map((c) => (
+              <div key={c.conceptId}>
+                <div className="flex justify-between text-sm">
+                  <span>{c.name}</span>
+                  <span className="text-gray-500">
+                    {pct(c.before)} → {pct(c.after)}
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 w-full rounded bg-gray-100">
+                  <div
+                    className="h-1.5 rounded bg-blue-500"
+                    style={{ width: `${Math.max(0, Math.min(100, Math.round(c.after * 100)))}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {summary.nextReviewAt && (
+          <p className="mt-4 text-sm text-gray-500">
+            {new Date(summary.nextReviewAt).toLocaleDateString('ko-KR', {
+              month: 'numeric',
+              day: 'numeric',
+            })}
+            에 다시 확인해요
+          </p>
+        )}
+
         <HomeButton onClick={goHome} />
       </Shell>
     )
