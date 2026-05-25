@@ -35,10 +35,13 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Protect /dashboard and /admin: send anonymous visitors to /login.
+  // Protect /dashboard, /admin, /learn, /onboarding: send anonymous visitors to /login.
   // (Admin authorization itself is enforced in app/admin/layout.tsx.)
   const requiresAuth =
-    pathname.startsWith('/dashboard') || pathname.startsWith('/admin')
+    pathname.startsWith('/dashboard') ||
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/learn') ||
+    pathname.startsWith('/onboarding')
   if (!user && requiresAuth) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
