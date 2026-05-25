@@ -24,7 +24,7 @@ export async function createSession(
 
   const [{ data: concepts }, { data: problems }, { data: progress }] = await Promise.all([
     supabase.from('concepts').select('id, order_index'),
-    supabase.from('problems').select('id, concept_id, difficulty').eq('reviewed', true),
+    supabase.from('problems_public').select('id, concept_id, difficulty'),
     supabase
       .from('concept_mastery')
       .select('concept_id, mastery, last_reviewed_at, next_review_at')

@@ -31,9 +31,10 @@ export default async function LearnPage({
   const problemIds = summary.problemIds ?? []
   const mode = summary.mode ?? 'practice'
 
-  // Fetch problems WITHOUT answer/solution/wrong_feedback (payload protection).
+  // Read from the safe view (problems_public): it omits answer/solution/
+  // wrong_feedback entirely, so those columns never reach the client.
   const { data: rows } = await supabase
-    .from('problems')
+    .from('problems_public')
     .select('id, concept_id, stem, choices, difficulty, answer_type')
     .in('id', problemIds.length ? problemIds : ['00000000-0000-0000-0000-000000000000'])
     .eq('reviewed', true)
