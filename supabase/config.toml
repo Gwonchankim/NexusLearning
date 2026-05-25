@@ -24,7 +24,9 @@ major_version = 17
 
 [db.seed]
 enabled = true
-sql_paths = ["./seed.sql"]
+# Order matters: seed.sql creates the taxonomy (concepts) that seed_problems.sql
+# references via concept_id, so it must run first.
+sql_paths = ["./seed.sql", "./seed_problems.sql"]
 
 [studio]
 enabled = true
