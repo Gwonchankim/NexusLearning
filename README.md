@@ -4,7 +4,7 @@
 
 스택: **Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Supabase (Postgres · Auth · RLS)**
 
-> 현재 단계는 **PR4 (지식맵 + 프런티어 추천)** 입니다. PR3 학습 루프 위에 선수관계 DAG 지식맵과 frontier 추천("다음 학습 개념")·전용 학습 진입(`startConceptSession`)이 더해졌습니다. 성장 페이오프·AI 실시간 생성·결제는 아직 포함되어 있지 않습니다.
+> 현재 단계는 **PR5 (성장 페이오프 & 오늘 할 일)** 입니다. PR4 지식맵/추천 위에 **세션 종료 성장 페이오프**(개념별 Before/After·성장 헤드라인·다음 복습 예고)와 **대시보드 오늘 할 일**(오늘의 성장·스트릭·오늘의 퀘스트·최근 변화)이 더해졌습니다. AI 실시간 생성·결제·캐릭터는 아직 포함되어 있지 않습니다.
 
 ---
 
@@ -163,6 +163,20 @@ npm run db:reset                                          # seed.sql → seed_pr
 
 ---
 
+## 성장 페이오프 & 오늘 할 일 (PR5)
+
+학습이 끝난 직후의 **성장 체감**과 **매일 돌아올 이유**를 더합니다. 모든 성장 수치는 **서버에서 계산**하고, 날짜 경계는 **KST(Asia/Seoul, 고정 +9h)** 기준입니다. **DB 마이그레이션·신규 의존성은 없습니다**(시각화는 경량 SVG).
+
+- **세션 종료 페이오프**(완료 화면): 개념별 **Before→After 게이지**, **성장 헤드라인**(`이해도 +N%p`; 0/음수는 "기반을 유지/다졌어요"로 순화), **다음 복습 예고**.
+- **오늘의 성장**: 오늘(KST) 완료 세션들의 숙련도 변화 합(%p). 음수는 숫자 강조 없이 순화.
+- **스트릭**: 완료 세션이 있는 날의 연속 일수(KST).
+- **오늘의 퀘스트**: 신규 2 + 복습 3(가용량에 따라 가변, `locked` 제외). 미완 항목은 `startQuestSession`으로 해당 개념 학습을 시작합니다.
+- **최근 변화**: 최근 7개 완료 세션의 성장 델타를 경량 SVG 스파크라인으로 표시.
+- **성장 수치 정의**: `sessionMasteryDelta` = 그 세션에서 실제로 푼 개념들의 `effectiveMastery` 변화(after−before)의 **부호 있는 평균**(없으면 null → 헤드라인 생략). 세션 시작 시 `learning_sessions.summary.startMastery` 스냅샷을 저장해 서버가 종료 시 비교합니다.
+- 순수 로직(KST·스트릭·퀘스트·델타)은 `lib/growth`(Vitest)로 검증합니다. `growth_snapshots` 일별 영속화·장기 성장곡선은 후속 PR 과제입니다.
+
+---
+
 ## 프로젝트 구조
 
 ```
@@ -170,9 +184,9 @@ app/
 ├── layout.tsx           # 루트 레이아웃 (메타데이터)
 ├── page.tsx             # "/" → /dashboard 리디렉트
 ├── login/               # 이메일/비밀번호 로그인·회원가입 (page + actions)
-├── dashboard/           # 대시보드: page(개요+지식맵+추천 카드) · KnowledgeMap(정적 SVG DAG)
+├── dashboard/           # 대시보드: page · KnowledgeMap · GrowthCards · RecentSparkline · growth.ts(loadGrowth)
 ├── onboarding/          # 학년·목표 + 미니 진단 시작 (page + actions)
-├── learn/               # 학습 세션: page(조회/resume) · LearnSession(client) · actions · create-session · recommend(그래프 헬퍼)
+├── learn/               # 학습 세션: page · LearnSession(client) · actions(submit/end/startConcept/startQuest) · create-session · recommend
 └── admin/               # 콘텐츠 검수 파이프라인 (PR2)
 lib/
 ├── supabase/            # 브라우저/서버 Supabase 클라이언트 (server는 async cookies)
@@ -180,7 +194,8 @@ lib/
 ├── adaptive/index.ts    # 숙련도 엔진: EWMA + 망각 decay (PLAN §5.1, 순수, Vitest)
 ├── scheduler/index.ts   # SM-2-lite 스케줄러 (PLAN §5.2, 순수, Vitest)
 ├── session/select.ts    # 세션 문제 선정 (순수, Vitest)
-└── graph/index.ts       # 선수관계 DAG · frontier 추천 · 상태 분류 (PLAN §5.3, 순수, Vitest)
+├── graph/index.ts       # 선수관계 DAG · frontier 추천 · 상태 분류 (PLAN §5.3, 순수, Vitest)
+└── growth/index.ts      # KST·스트릭·오늘의 퀘스트·세션 성장 델타 (PR5, 순수, Vitest)
 proxy.ts                 # Next 16 Proxy: 세션 갱신 + 라우트 가드(/dashboard·/admin·/learn·/onboarding)
 supabase/                # 위 "데이터베이스" 참고 (migrations 0001~0005 + seed.sql · seed_problems.sql)
 ```
@@ -194,7 +209,7 @@ npm run dev        # 개발 서버
 npm run build      # 프로덕션 빌드
 npm run start      # 빌드 결과 실행
 npm run lint       # ESLint
-npm run test       # Vitest 단위테스트 (grading / adaptive / scheduler / session / graph)
+npm run test       # Vitest 단위테스트 (grading / adaptive / scheduler / session / graph / growth)
 npm run db:start   # 로컬 Supabase 기동 (Docker 필요)
 npm run db:status  # 로컬 Supabase 상태/접속 정보
 npm run db:reset   # 마이그레이션 재적용 + seed 재실행

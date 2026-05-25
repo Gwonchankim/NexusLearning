@@ -11,6 +11,7 @@ export interface DashboardRecommendation {
   /** Average effective mastery over concepts the user has studied (not all 15). */
   avgEffectiveMastery: number
   dueCount: number
+  dueConceptIds: string[]
   concepts: { id: string; name: string; unitId: string; orderIndex: number; prereqIds: string[] }[]
   rec: Recommendation
   nameById: Record<string, string>
@@ -68,9 +69,10 @@ export async function loadRecommendation(): Promise<DashboardRecommendation> {
   const avgEffectiveMastery = studied.length
     ? studied.reduce((a, b) => a + b, 0) / studied.length
     : 0
-  const dueCount = masteryRows.filter(
-    (m) => m.next_review_at && new Date(m.next_review_at) <= now,
-  ).length
+  const dueConceptIds = masteryRows
+    .filter((m) => m.next_review_at && new Date(m.next_review_at) <= now)
+    .map((m) => m.concept_id as string)
+  const dueCount = dueConceptIds.length
 
   const nameById: Record<string, string> = {}
   for (const c of conceptRows) nameById[c.id] = c.name
@@ -82,6 +84,7 @@ export async function loadRecommendation(): Promise<DashboardRecommendation> {
     hasProgress: masteryRows.length > 0,
     avgEffectiveMastery,
     dueCount,
+    dueConceptIds,
     concepts: nodes.map((n) => ({
       id: n.id,
       name: nameById[n.id],
