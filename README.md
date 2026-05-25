@@ -4,7 +4,7 @@
 
 스택: **Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Supabase (Postgres · Auth · RLS)**
 
-> 현재 단계는 **PR1 (기반 구축)** 입니다. 학습 세션·문제 풀이·관리자 검수·AI·결제 기능은 포함되어 있지 않습니다.
+> 현재 단계는 **PR3 (학습 루프)** 입니다. 온보딩 진단·학습 세션·서버측 채점·숙련도(EWMA)/복습 스케줄(SM-2-lite)이 동작합니다. 지식맵/추천·성장 페이오프·AI 실시간 생성·결제는 아직 포함되어 있지 않습니다.
 
 ---
 
@@ -125,10 +125,27 @@ npm run db:reset                                          # seed.sql → seed_pr
 
 `config.toml`의 `[db.seed] sql_paths`가 `seed.sql`(개념) 다음에 `seed_problems.sql`(승인 문제)을 적용합니다.
 
-### 정답 표기 / 채점 정책 경계
-- PR2는 `answer`를 **canonical answer**(대표 정답) 문자열로 **저장만** 합니다.
-- `expression` 동치식 비교, 공백·항·인수 순서 정규화, `O/X` 입력 정규화(`o`, `O`, `ㅇ`, `예` 등 허용)는 **PR3 채점 정책**에서 다룹니다.
-- 즉, PR2의 책임 범위는 **검수 → 승인 → seed 재현 파이프라인**까지이며, 실제 채점/정답 매칭 로직은 포함하지 않습니다.
+### 정답 표기 / 채점 정책 (PR3 구현)
+- `answer`는 **canonical answer**(대표 정답) 문자열로 저장하고, 채점은 항상 **서버측**에서 수행합니다(`lib/grading`).
+- 답안 유형별 최소 정규화:
+  - `multiple_choice` — 공백 무시 후 정답 비교
+  - `short_answer` — 공백 정리 후 비교(숫자는 그대로). 정답이 O/X면 `O,o,ㅇ,예,yes,true,1,참`→O / `X,x,아니오,아니요,no,false,0,거짓`→X 정규화
+  - `expression` — **제한적 항/인수 순서 정규화**(공백 제거 + top-level 합 항 순서 + top-level 곱 인수 순서 + 괄호 내 단순 다항식 항 순서). 파싱 실패 시 공백만 제거해 비교
+- **한계**: `expression`은 전개식↔인수분해식 동치(예: `(x+3)(x+4)` vs `x^2+7x+12`)나 `(x+3)^2` vs `(x+3)(x+3)` 같은 **대수적 동치는 인정하지 않습니다**. 완전 동치 판정(CAS)은 후속 PR 과제입니다.
+
+---
+
+## 학습 루프 (PR3)
+
+온보딩 미니 진단으로 초기 숙련도를 만들고, 학습 세션에서 푼 결과로 숙련도(EWMA)와 다음 복습일(SM-2-lite)이 갱신됩니다.
+
+- `/onboarding` — 학년·목표 입력 → 5~7문제 미니 진단(`mode=diagnostic`) → 초기 `concept_mastery` 시드
+- `/learn?sessionId=...` — 세션 문제를 1개씩 풀이 → **서버측 채점** → 즉시 피드백(정오답·풀이·숙련도 변화·다음 복습일). 세션 생성은 **명시적 Server Action**(`startPracticeSession`/`startDiagnosticSession`)에서만 이뤄지며, `/learn` 새로고침은 같은 세션을 이어서 풉니다(새 세션 생성 안 함).
+- `/dashboard` — 개념별 숙련도 개요 + 복습 도래 수 + "학습 세션 시작". 진행 데이터가 없으면 온보딩으로 안내합니다.
+
+엔진은 순수 함수로 분리되어 `npm run test`(Vitest)로 검증합니다: `lib/adaptive`(EWMA α=0.3, 망각 decay λ=0.035), `lib/scheduler`(복습 간격 1→3→7→16일, 오답 시 1일 리셋 + ease 감소), `lib/grading`, `lib/session/select`.
+
+> **보안 범위(중요)**: PR3는 학습 세션이 클라이언트로 보내는 payload에서 `answer/solution`을 제외하고 채점을 서버에서 수행합니다. 다만 기존 `problems_read_reviewed` RLS는 reviewed 문제의 `answer/solution` 컬럼을 여전히 노출하므로, **DB 레벨 컬럼 보호(뷰 분리/컬럼 RLS 등)는 후속 PR 과제**입니다.
 
 ---
 
@@ -138,20 +155,20 @@ npm run db:reset                                          # seed.sql → seed_pr
 app/
 ├── layout.tsx           # 루트 레이아웃 (메타데이터)
 ├── page.tsx             # "/" → /dashboard 리디렉트
-├── login/
-│   ├── page.tsx         # 이메일/비밀번호 로그인·회원가입 폼
-│   └── actions.ts       # signIn / signUp / signOut (Server Actions)
-└── dashboard/
-    └── page.tsx         # 인증 가드 + seed concept 개수(빈 상태)
+├── login/               # 이메일/비밀번호 로그인·회원가입 (page + actions)
+├── dashboard/page.tsx   # 숙련도 개요 + 복습 도래 + 세션 시작 (mastery 없으면 온보딩 안내)
+├── onboarding/          # 학년·목표 + 미니 진단 시작 (page + actions)
+├── learn/               # 학습 세션: page(조회/resume) · LearnSession(client) · actions · create-session(helper)
+└── admin/               # 콘텐츠 검수 파이프라인 (PR2)
 lib/
-├── supabase/
-│   ├── client.ts        # 브라우저용 Supabase 클라이언트 (PR3+)
-│   └── server.ts        # 서버용 Supabase 클라이언트 (async cookies)
-├── adaptive/index.ts    # 숙련도 엔진 타입 골격 (PLAN §5.1, 구현 PR3)
-├── scheduler/index.ts   # SM-2-lite 스케줄러 타입 골격 (PLAN §5.2, 구현 PR3)
+├── supabase/            # 브라우저/서버 Supabase 클라이언트 (server는 async cookies)
+├── grading/index.ts     # 답안 채점 — 최소 정규화 (순수, Vitest)
+├── adaptive/index.ts    # 숙련도 엔진: EWMA + 망각 decay (PLAN §5.1, 순수, Vitest)
+├── scheduler/index.ts   # SM-2-lite 스케줄러 (PLAN §5.2, 순수, Vitest)
+├── session/select.ts    # 세션 문제 선정 (순수, Vitest)
 └── graph/index.ts       # 프런티어 추천 타입 골격 (PLAN §5.3, 구현 PR4)
-proxy.ts                 # Next 16 Proxy(구 Middleware): 세션 갱신 + 라우트 가드
-supabase/                # 위 "데이터베이스" 참고
+proxy.ts                 # Next 16 Proxy: 세션 갱신 + 라우트 가드(/dashboard·/admin·/learn·/onboarding)
+supabase/                # 위 "데이터베이스" 참고 (migrations 0001~0005 + seed.sql · seed_problems.sql)
 ```
 
 ---
@@ -163,6 +180,7 @@ npm run dev        # 개발 서버
 npm run build      # 프로덕션 빌드
 npm run start      # 빌드 결과 실행
 npm run lint       # ESLint
+npm run test       # Vitest 단위테스트 (grading / adaptive / scheduler / session)
 npm run db:start   # 로컬 Supabase 기동 (Docker 필요)
 npm run db:status  # 로컬 Supabase 상태/접속 정보
 npm run db:reset   # 마이그레이션 재적용 + seed 재실행
