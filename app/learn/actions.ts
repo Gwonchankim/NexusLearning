@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { gradeAnswer, type AnswerType } from '@/lib/grading'
 import { updateMastery, effectiveMastery, type Difficulty, type MasteryState } from '@/lib/adaptive'
 import { summarizeSessionDeltas } from '@/lib/growth'
@@ -110,8 +111,12 @@ export async function submitAttempt(input: SubmitAttemptInput): Promise<SubmitAt
   })
   if (!guard.ok) throw new Error(`submission rejected: ${guard.reason}`)
 
-  // Server-side fetch of the canonical answer (reviewed problems only).
-  const { data: problem } = await supabase
+  // Validation above has passed (ownership, not-ended, in-session, no-duplicate),
+  // all via the user client. ONLY now read the canonical answer/solution/feedback
+  // with the privileged client — students/anon can no longer read these columns
+  // (migration 0006). The service_role bypasses RLS, so re-assert reviewed=true.
+  const admin = createAdminClient()
+  const { data: problem } = await admin
     .from('problems')
     .select('id, concept_id, answer, answer_type, choices, difficulty, solution, wrong_feedback')
     .eq('id', input.problemId)

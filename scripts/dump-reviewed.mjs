@@ -1,24 +1,28 @@
 // Local helper: dump approved problems (reviewed=true) to supabase/seed_problems.sql
 // so `npm run db:reset` reproduces the reviewed baseline (Option C).
-// reviewed=true rows are world-readable, so the anon key is enough.
+// Requires the SERVICE_ROLE key: since migration 0006, answer/solution/
+// wrong_feedback are NOT readable with the anon key (the public surface is the
+// problems_public view, which omits them), so dumping the full seed needs the
+// privileged key. Keep it server-only — never commit it.
 // Env:
 //   SUPABASE_URL (default http://127.0.0.1:54321)
-//   SUPABASE_ANON_KEY (or SUPABASE_SERVICE_ROLE_KEY)
+//   SUPABASE_SERVICE_ROLE_KEY (required)
 //
 // Usage:
-//   $env:SUPABASE_ANON_KEY="..."; node scripts/dump-reviewed.mjs
+//   $env:SUPABASE_SERVICE_ROLE_KEY="..."; node scripts/dump-reviewed.mjs
 import { writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const BASE = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321'
-const KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!KEY) {
-  console.error('Missing env: SUPABASE_ANON_KEY (or SUPABASE_SERVICE_ROLE_KEY).')
+  console.error(
+    'Missing env: SUPABASE_SERVICE_ROLE_KEY (required).\n' +
+      'Since migration 0006, answer/solution/wrong_feedback are not readable with the\n' +
+      'anon key — dumping the seed needs the service_role key (server-only, never commit).',
+  )
   process.exit(1)
 }
 

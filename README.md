@@ -56,7 +56,7 @@ npm run dev
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | `API URL` | 브라우저 노출 가능 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `anon key` | 브라우저 노출 가능(RLS가 데이터 보호) |
-| `SUPABASE_SERVICE_ROLE_KEY` | `service_role key` | **서버 전용**, 클라이언트 노출 금지. PR1 앱에서는 미사용(이후 관리자/seed 툴링용) |
+| `SUPABASE_SERVICE_ROLE_KEY` | `service_role key` | **서버 전용**(브라우저/클라이언트 노출 금지). 서버 채점(`submitAttempt`의 정답 조회)과 seed 덤프에 사용. 배포 시 **서버 환경변수로만** 설정(예: Vercel server env), `NEXT_PUBLIC_` 접두사 금지, `.env.local`은 커밋 금지 |
 
 ---
 
@@ -82,9 +82,9 @@ npm run db:reset     # = npx supabase db reset (마이그레이션 재적용 + s
 
 RLS 요약:
 
-- public read: `subjects`, `units`, `concepts`, `concept_prerequisites`, 그리고 `reviewed = true`인 `problems`
+- public read: `subjects`, `units`, `concepts`, `concept_prerequisites`, 그리고 `problems_public` 뷰(`reviewed` 행의 **안전 컬럼만** — `answer/solution/wrong_feedback` 제외)
 - 본인만 접근: `profiles`, `learning_sessions`, `attempts`, `concept_mastery`, `growth_snapshots`
-- 미검수 `problems`는 어떤 정책도 노출하지 않으므로 `service_role`만 접근 가능(관리자 검수 UI는 PR2)
+- base `problems`는 학생/anon에게 노출되지 않습니다(0006). 관리자만 RLS(`is_admin()`)로 읽고, 앱 서버는 채점 시 `service_role`로만 정답을 읽습니다. 미검수 행도 `service_role`/관리자만 접근(검수 UI는 PR2)
 
 > `npm run db:start`가 `config.toml`의 필드를 인식하지 못하면 CLI 버전 차이일 수 있습니다. 그 경우 `config.toml`을 지우고 `npx supabase init`으로 재생성한 뒤, 로컬 개발 편의를 위해 `[auth.email] enable_confirmations = false`만 다시 설정하세요. Postgres 버전 이미지가 없다는 오류가 나면 `[db] major_version`을 낮춰보세요(예: 15).
 
@@ -119,7 +119,7 @@ SUPABASE_ANON_KEY=<anon> ADMIN_EMAIL=<관리자 이메일> ADMIN_PASSWORD=<비�
 승인된 문제를 `supabase/seed_problems.sql`로 덤프해 커밋하면 `db:reset` 후에도 재현됩니다.
 
 ```bash
-SUPABASE_ANON_KEY=<anon> node scripts/dump-reviewed.mjs   # supabase/seed_problems.sql 생성
+SUPABASE_SERVICE_ROLE_KEY=<service_role> node scripts/dump-reviewed.mjs   # supabase/seed_problems.sql 생성 (answer 포함 — service_role 필수)
 npm run db:reset                                          # seed.sql → seed_problems.sql 순서로 적용
 ```
 
@@ -145,7 +145,7 @@ npm run db:reset                                          # seed.sql → seed_pr
 
 엔진은 순수 함수로 분리되어 `npm run test`(Vitest)로 검증합니다: `lib/adaptive`(EWMA α=0.3, 망각 decay λ=0.035), `lib/scheduler`(복습 간격 1→3→7→16일, 오답 시 1일 리셋 + ease 감소), `lib/grading`, `lib/session/select`.
 
-> **보안 범위(중요)**: PR3는 학습 세션이 클라이언트로 보내는 payload에서 `answer/solution`을 제외하고 채점을 서버에서 수행합니다. 다만 기존 `problems_read_reviewed` RLS는 reviewed 문제의 `answer/solution` 컬럼을 여전히 노출하므로, **DB 레벨 컬럼 보호(뷰 분리/컬럼 RLS 등)는 후속 PR 과제**입니다.
+> **보안 범위(중요)**: PR3는 학습 세션이 클라이언트로 보내는 payload에서 `answer/solution`을 제외하고 채점을 서버에서 수행합니다. 당시 `problems_read_reviewed` RLS가 reviewed 문제의 `answer/solution` 컬럼을 여전히 노출하던 문제는 **보안 하드닝(0006)에서 해결**되었습니다 — 아래 "보안 하드닝" 섹션 참고.
 
 ---
 
@@ -159,7 +159,7 @@ npm run db:reset                                          # seed.sql → seed_pr
 - **`startConceptSession(conceptId)`**: 추천 CTA가 호출하는 Server Action. 클라이언트가 보낸 `conceptId`를 서버에서 다시 검증(`lib/graph`의 `isStartable`)해 `locked`/비추천을 거부하고, 해당 개념만 출제하는 focus 세션을 만들어 `/learn`으로 이동합니다.
 - **평균 숙련도 카드 vs 지식맵**: 평균 숙련도 카드는 **학습한 개념**(`concept_mastery` 행이 있는 개념)만의 평균이고, 지식맵은 **전체 15개념**의 상태를 보여줍니다 — 분모가 다릅니다.
 
-순수 로직은 `lib/graph`(Vitest)로 검증합니다. 시각화는 의존성 없이 SVG/CSS로 구현했고 **React Flow는 도입하지 않았습니다**(후속 고도화 후보). `answer/solution`의 DB 레벨 컬럼 보호는 PR3와 동일하게 후속 보안 PR 과제입니다(이번 범위 밖).
+순수 로직은 `lib/graph`(Vitest)로 검증합니다. 시각화는 의존성 없이 SVG/CSS로 구현했고 **React Flow는 도입하지 않았습니다**(후속 고도화 후보). `answer/solution`의 DB 레벨 컬럼 보호는 **보안 하드닝(0006)에서 해결**되었습니다(아래 "보안 하드닝" 섹션).
 
 ---
 
@@ -174,6 +174,19 @@ npm run db:reset                                          # seed.sql → seed_pr
 - **최근 변화**: 최근 7개 완료 세션의 성장 델타를 경량 SVG 스파크라인으로 표시.
 - **성장 수치 정의**: `sessionMasteryDelta` = 그 세션에서 실제로 푼 개념들의 `effectiveMastery` 변화(after−before)의 **부호 있는 평균**(없으면 null → 헤드라인 생략). 세션 시작 시 `learning_sessions.summary.startMastery` 스냅샷을 저장해 서버가 종료 시 비교합니다.
 - 순수 로직(KST·스트릭·퀘스트·델타)은 `lib/growth`(Vitest)로 검증합니다. `growth_snapshots` 일별 영속화·장기 성장곡선은 후속 PR 과제입니다.
+
+---
+
+## 보안 하드닝 — answer/solution DB 노출 차단 (0006)
+
+reviewed 문제의 `answer/solution/wrong_feedback`를 **DB/REST 레벨에서 학생·anon이 직접 읽지 못하도록** 잠갔습니다. 채점은 그대로 서버측 `lib/grading`(TS)로 수행합니다.
+
+- **`problems_public` 뷰**: 학생/anon의 유일한 문제 read 경로. `id, concept_id, stem, choices, difficulty, answer_type, reviewed, created_at`만 노출하고 `answer/solution/wrong_feedback`은 **포함하지 않습니다**. anon/authenticated에는 `SELECT`만 부여하고 쓰기 권한은 회수합니다(단순 뷰의 auto-update로 base가 변조되지 않도록).
+- **base `problems`**: `problems_read_reviewed` 정책 제거 + anon `SELECT` 권한 회수. 이제 관리자(`is_admin()` RLS)와 `service_role`만 base를 읽습니다.
+- **서버 전용 정답 조회**: `submitAttempt`는 세션 소유/ended/중복/세션내 검증을 **user client로 먼저** 끝낸 뒤에만, `lib/supabase/admin.ts`의 `service_role` 클라이언트로 정답/풀이를 읽어 채점합니다. `solution/wrong_feedback`는 제출 후 응답으로만 전달됩니다.
+- **service-role 키 취급**: `SUPABASE_SERVICE_ROLE_KEY`는 서버 전용 — 브라우저 노출 금지, 배포 시 서버 환경변수로만 설정(예: Vercel server env), `.env.local`은 커밋 금지. `NEXT_PUBLIC_` 접두사가 없으므로 Next가 클라이언트 번들에 인라인하지 않습니다.
+- **server-only 경계**: `server-only` 패키지는 현재 lockfile에 없어 추가하지 않았습니다(신규 의존성 0 유지). 대신 `lib/supabase/admin.ts`는 (1) 모듈 로드 시 `window` 가드(브라우저에서 평가되면 throw), (2) `SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_SUPABASE_URL` 누락 시 명확한 throw, (3) import 위생(서버 액션/스크립트에서만 import, Client Component 미import)으로 서버 전용 경계를 유지합니다.
+- **seed 덤프**: `scripts/dump-reviewed.mjs`는 이제 `SUPABASE_SERVICE_ROLE_KEY`가 필요합니다(anon로는 `answer`를 읽을 수 없음).
 
 ---
 
