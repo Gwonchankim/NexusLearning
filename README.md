@@ -4,7 +4,7 @@
 
 스택: **Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Supabase (Postgres · Auth · RLS)**
 
-> 현재 단계는 **PR5 (성장 페이오프 & 오늘 할 일)** 입니다. PR4 지식맵/추천 위에 **세션 종료 성장 페이오프**(개념별 Before/After·성장 헤드라인·다음 복습 예고)와 **대시보드 오늘 할 일**(오늘의 성장·스트릭·오늘의 퀘스트·최근 변화)이 더해졌습니다. AI 실시간 생성·결제·캐릭터는 아직 포함되어 있지 않습니다.
+> 현재 단계는 **PR6 (계측) 완료** 입니다. PR5 성장 페이오프·오늘 할 일 위에 **루프 완주/CTA 전환/D1·D7 리텐션 계측**(`analytics_events` + `report_metrics`)이 더해졌고, 보안 하드닝(0006)으로 `answer/solution`의 DB/REST 노출을 차단했습니다. AI 실시간 생성·결제·캐릭터는 아직 포함되어 있지 않습니다. Staging 배포 가능 여부는 [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)로 검증합니다.
 
 ---
 
@@ -71,7 +71,11 @@ supabase/
 └── migrations/
     ├── 0001_init.sql                   # 전체 테이블 (PLAN.md §7)
     ├── 0002_rls.sql                    # RLS: public-read vs 사용자 전용
-    └── 0003_profiles_trigger.sql       # auth.users → profiles 자동 생성
+    ├── 0003_profiles_trigger.sql       # auth.users → profiles 자동 생성
+    ├── 0004_admin_review.sql           # 관리자 검수: admin_users · is_admin() · import_problems
+    ├── 0005_attempts_submitted_answer.sql  # attempts.submitted_answer 컬럼
+    ├── 0006_problem_answer_hardening.sql    # problems_public 뷰 + answer/solution DB 노출 차단
+    └── 0007_analytics_events.sql       # analytics_events · log_event · report_metrics
 ```
 
 스키마/seed를 다시 적용하려면:
@@ -229,7 +233,7 @@ lib/
 ├── graph/index.ts       # 선수관계 DAG · frontier 추천 · 상태 분류 (PLAN §5.3, 순수, Vitest)
 └── growth/index.ts      # KST·스트릭·오늘의 퀘스트·세션 성장 델타 (PR5, 순수, Vitest)
 proxy.ts                 # Next 16 Proxy: 세션 갱신 + 라우트 가드(/dashboard·/admin·/learn·/onboarding)
-supabase/                # 위 "데이터베이스" 참고 (migrations 0001~0005 + seed.sql · seed_problems.sql)
+supabase/                # 위 "데이터베이스" 참고 (migrations 0001~0007 + seed.sql · seed_problems.sql)
 ```
 
 ---
