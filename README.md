@@ -190,6 +190,25 @@ reviewed 문제의 `answer/solution/wrong_feedback`를 **DB/REST 레벨에서 �
 
 ---
 
+## 계측 (PR6)
+
+학습 루프가 실제로 **완주**되는지, 사용자가 **재방문**(D1/D7)하는지, 추천/퀘스트 CTA가 **세션으로 전환**되는지를 측정합니다. 게이트 지표는 대부분 기존 테이블에서 **도출**하고, 도출 불가능한 "클릭 의도"만 이벤트로 기록합니다(신규 의존성 0).
+
+- **`analytics_events`**(0007): funnel 이벤트 2종만 저장 — `recommendation_clicked`, `quest_started`. RLS는 정책 0개로 잠가(anon/authenticated read·direct write 불가) 쓰기는 `log_event()` RPC, 읽기는 `service_role`만(= `admin_users` 패턴).
+- **`log_event(p_name, p_props)`**(SECURITY DEFINER): `user_id`를 `auth.uid()`로 강제(위조 불가)하고 **이벤트별 props 화이트리스트**(허용 key·enum·slug만, 그 외 전부 거부)로 PII 유입을 차단. `authenticated`만 실행.
+- **`report_metrics(p_from, p_to)`**(SECURITY INVOKER, `service_role` 전용): 집계 jsonb 반환 — `completion`(완주율·mode별)·`cta`(클릭→세션 전환, 동일 window)·`funnel`(signup 코호트 기준)·`retention`(D1/D7).
+- **`npm run report:metrics -- --from <ISO> [--to <ISO>]`**: `report_metrics`를 호출해 콘솔 표로 출력. `SUPABASE_SERVICE_ROLE_KEY` 필요(서버 전용·미커밋).
+
+정의/규약:
+- **루프 완주** = `learning_sessions.ended_at not null` + `summary.problemCount > 0`.
+- **retention** = signup 코호트(분모) 대비 **정확히 N일째**(KST) 완주 활동. 미성숙 코호트(오늘 < 가입일+N)는 `d1_mature`/`d7_mature=false`로 표시하고 D_N은 `—`. `cohort_size` 병기(small-N 주의).
+- **CTA 전환** = 클릭(이벤트)과 전환(세션 `summary.source`)을 **동일 window**로 계산. `--from` 미지정 시 첫 이벤트 시각부터 — PR6 이전 `source` 세션과 섞이지 않게 명시 권장. 집계 비율(퍼-클릭 상관 아님).
+- **KST**: 리포트 SQL은 `at time zone 'Asia/Seoul'`(앱 TS는 `lib/growth` 고정 +9h; DST 없어 동일 결과).
+- **계측 발행**: `lib/analytics/log-event.ts`의 `logEvent()`는 **best-effort awaited telemetry** — await하되 내부 try/catch로 실패를 삼켜 학습 액션을 절대 깨지 않음. 명시적 Server Action에서만 발행(렌더 금지).
+- **Privacy**: `props`는 ID/enum/boolean/count만(`conceptId` slug·`source`·`kind`). 원문 답안·`goal`/`grade`·email·문제 `stem`/`solution`/`answer`·IP/UA 저장 금지.
+
+---
+
 ## 프로젝트 구조
 
 ```
