@@ -4,7 +4,7 @@
 
 스택: **Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Supabase (Postgres · Auth · RLS)**
 
-> 현재 단계는 **PR6 (계측) 완료** 입니다. PR5 성장 페이오프·오늘 할 일 위에 **루프 완주/CTA 전환/D1·D7 리텐션 계측**(`analytics_events` + `report_metrics`)이 더해졌고, 보안 하드닝(0006)으로 `answer/solution`의 DB/REST 노출을 차단했습니다. AI 실시간 생성·결제·캐릭터는 아직 포함되어 있지 않습니다. Staging 배포 가능 여부는 [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)로 검증하고, production 배포 절차는 [`PRODUCTION_HANDOFF.md`](./PRODUCTION_HANDOFF.md)를 따릅니다.
+> 현재 단계는 **PR6 (계측) 완료** 입니다. PR5 성장 페이오프·오늘 할 일 위에 **루프 완주/CTA 전환/D1·D7 리텐션 계측**(`analytics_events` + `report_metrics`)이 더해졌고, 보안 하드닝(0006)으로 `answer/solution`의 DB/REST 노출을 차단했습니다. AI 실시간 생성·결제·캐릭터는 아직 포함되어 있지 않습니다. 배포 전 유료 가치와 제품 포지션은 [`PARENT_B2C_STRATEGY_BRIEF.md`](./PARENT_B2C_STRATEGY_BRIEF.md)를 기준으로 재점검하고, Staging 배포 가능 여부는 [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)로 검증하며, production 배포 절차는 [`PRODUCTION_HANDOFF.md`](./PRODUCTION_HANDOFF.md)를 따릅니다.
 
 ---
 
@@ -211,6 +211,22 @@ reviewed 문제의 `answer/solution/wrong_feedback`를 **DB/REST 레벨에서 �
 - **KST**: 리포트 SQL은 `at time zone 'Asia/Seoul'`(앱 TS는 `lib/growth` 고정 +9h; DST 없어 동일 결과).
 - **계측 발행**: `lib/analytics/log-event.ts`의 `logEvent()`는 **best-effort awaited telemetry** — await하되 내부 try/catch로 실패를 삼켜 학습 액션을 절대 깨지 않음. 명시적 Server Action에서만 발행(렌더 금지).
 - **Privacy**: `props`는 ID/enum/boolean/count만(`conceptId` slug·`source`·`kind`). 원문 답안·`goal`/`grade`·email·문제 `stem`/`solution`/`answer`·IP/UA 저장 금지.
+
+---
+
+## 학부모 주간 성장 리포트 (PR11)
+
+1차 구매자는 학부모([`PARENT_B2C_STRATEGY_BRIEF.md`](./PARENT_B2C_STRATEGY_BRIEF.md))라는 전제 아래, `/dashboard`에 **읽기 전용** "이번 주 학부모 리포트" 섹션을 추가합니다. "이번 주 어디서 좋아졌고, 어디가 위험하며, 다음 7일에 무엇을 해야 하는지"를 학부모 언어로 보여줘 구독 명분을 만듭니다. **DB 마이그레이션·신규 의존성은 없습니다**(최근 7일 KST 기준, 기존 테이블/`summary` jsonb만 사용).
+
+- **리포트 구성**: 한 줄 결론 · 이번 주 안정된 개념(Top 3) · 지금 주의가 필요한 개념(Top 3) · 다음 7일 추천 액션(3개) · 복습 현황.
+- **계산**(순수 `lib/growth`의 `buildWeeklyParentReport`, Vitest 검증):
+  - 안정된 개념 = 최근 7일 완료 practice 세션의 `summary.conceptDeltas` 합산(양수만, 내림차순 Top 3).
+  - 위험 개념 = `effectiveMastery < 0.7` ∧ (복습 도래 `next_review_at<=now` 또는 최근 7일 오답) → 숙련도 오름차순 Top 3.
+  - 다음 7일 액션 = 복습 도래 → 약한 선수개념 → frontier 순으로 최대 3개.
+  - **복습 현황은 비율이 아니라 셀 수 있는 사실만**(`지금 복습이 밀린 개념 N개 · 이번 주 복습한 개념 M개`) — 과거 due 이력을 저장하지 않아 이행률(%)은 산정하지 않습니다.
+- **정직성 원칙**: 퍼센트보다 문장이 먼저(숙련도% 등은 작은 보조 텍스트). 학습 효과를 점수 상승으로 단정하지 않고, 데이터가 부족하면 `state`(`empty`/`sparse`/`ok`)로 조심스러운 문장으로 분기합니다.
+- 서버 로더 `app/dashboard/parent-report.ts`는 **읽기 전용**으로 세션/시도/숙련도를 조회해 순수 빌더에 넘깁니다(쓰기 없음).
+- **유료 전환 가설**: 무료(미니 진단·오늘 할 일) → Basic(주간 리포트·약점 Top 3·복습 플랜). 결제 전 **리포트 열람률·학부모 공유율·7일 재방문**을 먼저 검증합니다. 결제·이메일 발송·학부모 계정 분리·AI 생성 문장은 범위 밖(후속).
 
 ---
 

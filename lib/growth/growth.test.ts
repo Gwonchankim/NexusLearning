@@ -10,6 +10,8 @@ import {
   computeStreak,
   aggregateUnitMastery,
   collapseDailyMastery,
+  buildWeeklyParentReport,
+  type WeeklyReportInput,
 } from './index'
 
 describe('KST utils', () => {
@@ -182,5 +184,144 @@ describe('collapseDailyMastery', () => {
         { date: '2026-06-01', masteryAvg: 0.6 },
       ]),
     ).toEqual([{ date: '2026-06-01', masteryAvg: expect.closeTo(0.5, 10) }])
+  })
+})
+
+describe('buildWeeklyParentReport', () => {
+  const base: WeeklyReportInput = {
+    weekStart: '2026-05-28',
+    weekEnd: '2026-06-03',
+    sessions: [],
+    mastery: [],
+    reviewedThisWeek: 0,
+    dueConceptIds: [],
+    weakAsc: [],
+    frontier: [],
+    nameById: { a: '다항식 덧셈', b: '곱셈공식', c: '인수분해', d: '나머지정리' },
+    threshold: 0.7,
+  }
+
+  it('ranks top growth by cumulative delta desc, positive only, max 3', () => {
+    const r = buildWeeklyParentReport({
+      ...base,
+      sessions: [
+        { sessionMasteryDelta: 0.1, conceptDeltas: [{ conceptId: 'a', delta: 0.1 }, { conceptId: 'b', delta: 0.05 }] },
+        { sessionMasteryDelta: 0.2, conceptDeltas: [{ conceptId: 'b', delta: 0.2 }, { conceptId: 'c', delta: -0.1 }] },
+        { sessionMasteryDelta: 0.05, conceptDeltas: [{ conceptId: 'd', delta: 0.05 }] },
+      ],
+    })
+    // b: 0.25, a: 0.1, d: 0.05  (c excluded: net -0.1)
+    expect(r.topGrowth.map((g) => g.conceptId)).toEqual(['b', 'a', 'd'])
+    expect(r.topGrowth[0]).toEqual({ conceptId: 'b', name: '곱셈공식', delta: expect.closeTo(0.25, 10), sessions: 2 })
+    expect(r.topGrowth.find((g) => g.conceptId === 'c')).toBeUndefined()
+  })
+
+  it('excludes concepts whose net weekly delta is zero or negative', () => {
+    const r = buildWeeklyParentReport({
+      ...base,
+      mastery: [{ conceptId: 'a', effectiveMastery: 0.8, due: false, recentWrong: 0 }],
+      sessions: [
+        { sessionMasteryDelta: 0, conceptDeltas: [{ conceptId: 'a', delta: 0.1 }, { conceptId: 'a', delta: -0.1 }] },
+        { sessionMasteryDelta: -0.2, conceptDeltas: [{ conceptId: 'b', delta: -0.2 }] },
+      ],
+    })
+    expect(r.topGrowth).toEqual([])
+  })
+
+  it('ranks risk concepts by effectiveMastery asc, filtering below-threshold + (due or recent wrong)', () => {
+    const r = buildWeeklyParentReport({
+      ...base,
+      sessions: [{ sessionMasteryDelta: 0.1, conceptDeltas: [{ conceptId: 'a', delta: 0.1 }] }],
+      mastery: [
+        { conceptId: 'a', effectiveMastery: 0.9, due: true, recentWrong: 2 }, // excluded: above threshold
+        { conceptId: 'b', effectiveMastery: 0.4, due: true, recentWrong: 0 }, // included
+        { conceptId: 'c', effectiveMastery: 0.2, due: false, recentWrong: 3 }, // included (recent wrong)
+        { conceptId: 'd', effectiveMastery: 0.5, due: false, recentWrong: 0 }, // excluded: not due, no wrong
+      ],
+    })
+    expect(r.riskConcepts.map((x) => x.conceptId)).toEqual(['c', 'b'])
+    expect(r.riskConcepts[0]).toMatchObject({ conceptId: 'c', name: '인수분해', recentWrong: 3 })
+  })
+
+  it('orders actions review -> prereq -> frontier, dedups, max 3', () => {
+    const r = buildWeeklyParentReport({
+      ...base,
+      sessions: [{ sessionMasteryDelta: 0.1, conceptDeltas: [{ conceptId: 'a', delta: 0.1 }] }],
+      mastery: [{ conceptId: 'a', effectiveMastery: 0.8, due: false, recentWrong: 0 }],
+      dueConceptIds: ['b'],
+      weakAsc: ['b', 'c'], // 'b' already taken by review -> dedup
+      frontier: ['d'],
+    })
+    expect(r.actions.map((x) => [x.kind, x.conceptId])).toEqual([
+      ['review', 'b'],
+      ['prereq', 'c'],
+      ['frontier', 'd'],
+    ])
+  })
+
+  it('reviewAdherence is counts only (overdueNow from due flags, reviewedThisWeek passthrough)', () => {
+    const r = buildWeeklyParentReport({
+      ...base,
+      sessions: [{ sessionMasteryDelta: 0.1, conceptDeltas: [{ conceptId: 'a', delta: 0.1 }] }],
+      mastery: [
+        { conceptId: 'a', effectiveMastery: 0.8, due: true, recentWrong: 0 },
+        { conceptId: 'b', effectiveMastery: 0.4, due: true, recentWrong: 0 },
+        { conceptId: 'c', effectiveMastery: 0.9, due: false, recentWrong: 0 },
+      ],
+      reviewedThisWeek: 4,
+    })
+    expect(r.reviewAdherence).toEqual({ overdueNow: 2, reviewedThisWeek: 4 })
+    expect(r).not.toHaveProperty('reviewAdherence.rate')
+  })
+
+  it('weeklyMasteryDelta sums deltas, treats null as 0; null only when every session lacks a delta', () => {
+    const summed = buildWeeklyParentReport({
+      ...base,
+      sessions: [
+        { sessionMasteryDelta: 0.1, conceptDeltas: [{ conceptId: 'a', delta: 0.1 }] },
+        { sessionMasteryDelta: null, conceptDeltas: [] },
+      ],
+    })
+    expect(summed.weeklyMasteryDelta).toBeCloseTo(0.1, 10)
+
+    const allNull = buildWeeklyParentReport({
+      ...base,
+      sessions: [{ sessionMasteryDelta: null, conceptDeltas: [] }],
+    })
+    expect(allNull.weeklyMasteryDelta).toBeNull()
+  })
+
+  it("state='empty' when no sessions and no mastery", () => {
+    const r = buildWeeklyParentReport({ ...base })
+    expect(r.state).toBe('empty')
+    expect(r.completedSessions).toBe(0)
+    expect(r.conclusion).toContain('아직 없어요')
+  })
+
+  it("state='sparse' when mastery exists but no completed sessions; conclusion stays cautious", () => {
+    const r = buildWeeklyParentReport({
+      ...base,
+      mastery: [{ conceptId: 'b', effectiveMastery: 0.3, due: true, recentWrong: 1 }],
+    })
+    expect(r.state).toBe('sparse')
+    expect(r.topGrowth).toEqual([])
+    expect(r.conclusion).toContain('데이터가 부족')
+    expect(r.conclusion).toContain('곱셈공식') // names the top risk cautiously
+  })
+
+  it("state='ok' when sessions produced positive growth; conclusion mentions growth and risk", () => {
+    const r = buildWeeklyParentReport({
+      ...base,
+      sessions: [{ sessionMasteryDelta: 0.2, conceptDeltas: [{ conceptId: 'a', delta: 0.2 }] }],
+      mastery: [
+        { conceptId: 'a', effectiveMastery: 0.8, due: false, recentWrong: 0 },
+        { conceptId: 'b', effectiveMastery: 0.3, due: true, recentWrong: 0 },
+      ],
+    })
+    expect(r.state).toBe('ok')
+    expect(r.conclusion).toContain('다항식 덧셈') // grew
+    expect(r.conclusion).toContain('곱셈공식') // risk
+    // no exaggeration: never claims a score increase
+    expect(r.conclusion).not.toMatch(/점수|등급|상승/)
   })
 })
