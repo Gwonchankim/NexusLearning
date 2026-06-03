@@ -230,6 +230,19 @@ reviewed 문제의 `answer/solution/wrong_feedback`를 **DB/REST 레벨에서 �
 
 ---
 
+## 진단 기반 초기 리포트 (PR12)
+
+신규 사용자는 아직 1주일치 데이터가 없어 주간 리포트(PR11)가 `sparse/empty`로만 뜹니다. PR12는 미니 진단 **직후**의 학부모 결제 명분을 만들기 위해, `/dashboard` 첫 진입에 **읽기 전용 "진단 기반 초기 리포트" 카드**를 추가합니다. **DB 마이그레이션·신규 의존성은 없습니다**(기존 진단 세션/`attempts`/`concept_mastery`만 사용).
+
+- **카드 구성**: 한 줄 결론 · 지금 주의가 필요한 개념(진단 기준, 최대 3) · 다음 7일 회복 플랜 · 오늘 바로 할 액션 · "주간 추적" teaser.
+- **위험 개념 산출**(순수 `lib/growth`의 `buildDiagnosticSampleReport`, Vitest 검증): ① 진단 오답 → ② 낮은 `effectiveMastery` → ③ 선수개념 영향(`blocksDownstream`) 순. 데이터 희소 시 `state`(`empty`/`sparse`/`ok`)로 조심스러운 문장 분기.
+- **7일 회복 플랜**: Day 1–2 약한 기초/선수 개념 → Day 3–5 위험 개념 풀이 → Day 6–7 재점검. **`problems_public` 기준 문제 보유 개념만** 플랜/CTA 대상에 포함합니다.
+- **오늘 할 액션 CTA**: 기존 `startConceptSession`을 재사용하되, 로더가 **시작 가능(`isStartable`) + 문제 보유** 개념만 타깃으로 고르고 서버가 재검증합니다(클라이언트 conceptId 불신). 최약 개념이 `locked`면 시작 가능한 선수개념 → frontier → 일반 practice로 폴백하고, 가능한 게 없으면 정보 표시로 graceful 처리합니다.
+- **PR11과의 관계**: `parentReport.state !== 'ok'`(초기)일 때 진단 카드, `'ok'`이면 PR11 주간 리포트가 메인. 둘이 동시에 길게 뜨지 않습니다.
+- **정직성 원칙**: "초기 진단 기준" 명시, "흔들린 신호"·"흔들려 보여요" 같은 hedged 톤. **점수/등급/상승 보장 표현 금지**. 서버 로더 `app/dashboard/diagnostic-report.ts`는 읽기 전용(쓰기 없음).
+
+---
+
 ## 프로젝트 구조
 
 ```

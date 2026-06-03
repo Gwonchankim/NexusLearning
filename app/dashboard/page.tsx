@@ -10,8 +10,10 @@ import GrowthCards from './GrowthCards'
 import RecentSparkline from './RecentSparkline'
 import GrowthCurve from './GrowthCurve'
 import ParentWeeklyReport from './ParentWeeklyReport'
+import DiagnosticSampleReport from './DiagnosticSampleReport'
 import { loadGrowth } from './growth'
 import { loadParentWeeklyReport } from './parent-report'
+import { loadDiagnosticSampleReport } from './diagnostic-report'
 
 function pct(v: number): string {
   return `${Math.round(v * 100)}%`
@@ -44,6 +46,10 @@ export default async function DashboardPage() {
   const recommended = rec.recommended
   const growth = hasProgress ? await loadGrowth() : null
   const parentReport = hasProgress ? await loadParentWeeklyReport() : null
+  // Before a full week of data, show the diagnostic-based initial report; once the
+  // weekly report has real data (state 'ok'), PR11 takes over as the main report.
+  const showWeekly = parentReport?.state === 'ok'
+  const diagnosticReport = hasProgress && !showWeekly ? await loadDiagnosticSampleReport() : null
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-12">
@@ -153,7 +159,8 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          {parentReport && <ParentWeeklyReport report={parentReport} />}
+          {showWeekly && parentReport && <ParentWeeklyReport report={parentReport} />}
+          {diagnosticReport && <DiagnosticSampleReport report={diagnosticReport} />}
 
           <section className="mt-8 space-y-2">
             {concepts.map((c) => {

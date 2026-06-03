@@ -12,6 +12,8 @@ import {
   collapseDailyMastery,
   buildWeeklyParentReport,
   type WeeklyReportInput,
+  buildDiagnosticSampleReport,
+  type DiagnosticReportInput,
 } from './index'
 
 describe('KST utils', () => {
@@ -323,5 +325,112 @@ describe('buildWeeklyParentReport', () => {
     expect(r.conclusion).toContain('곱셈공식') // risk
     // no exaggeration: never claims a score increase
     expect(r.conclusion).not.toMatch(/점수|등급|상승/)
+  })
+})
+
+describe('buildDiagnosticSampleReport', () => {
+  const base: DiagnosticReportInput = {
+    diagnosticDate: '2026-06-03',
+    hasDiagnostic: true,
+    attempts: [],
+    effByConcept: {},
+    blocksDownstreamById: {},
+    startableIds: [],
+    conceptsWithProblems: [],
+    weakAsc: [],
+    frontier: [],
+    nameById: { a: '다항식 덧셈', b: '곱셈공식', c: '인수분해', d: '나머지정리', e: '항등식' },
+    threshold: 0.7,
+  }
+
+  it('ranks risk by wrong-first, then mastery asc, then blocksDownstream desc; max 3', () => {
+    const r = buildDiagnosticSampleReport({
+      ...base,
+      attempts: [
+        { conceptId: 'a', correct: true },
+        { conceptId: 'b', correct: false },
+        { conceptId: 'c', correct: false },
+        { conceptId: 'd', correct: true },
+      ],
+      effByConcept: { a: 0.9, b: 0.5, c: 0.5, d: 0.4, e: 0.3 },
+      blocksDownstreamById: { b: 1, c: 3 },
+    })
+    // wrong: b,c (eff equal 0.5) -> c before b (blocks 3>1); then d (correct, eff 0.4 < threshold)
+    expect(r.riskConcepts.map((x) => x.conceptId)).toEqual(['c', 'b', 'd'])
+    expect(r.riskConcepts[0]).toMatchObject({ conceptId: 'c', wrongInDiagnostic: true, blocksDownstream: 3 })
+    // 'a' excluded (correct AND mastery >= threshold)
+    expect(r.riskConcepts.find((x) => x.conceptId === 'a')).toBeUndefined()
+  })
+
+  it('recovery plan + todayAction include only problem-backed, startable concepts', () => {
+    const r = buildDiagnosticSampleReport({
+      ...base,
+      attempts: [{ conceptId: 'b', correct: false }],
+      effByConcept: { b: 0.4, c: 0.3, d: 0.2 },
+      startableIds: ['b', 'c'], // d not startable
+      conceptsWithProblems: ['b', 'c'], // d has no problems
+      weakAsc: ['d', 'c'], // d filtered (not startable/no problems) -> c for day1_2
+    })
+    // day3_5/day6_7 = risk concept b (problem-backed)
+    expect(r.recoveryPlan.find((d) => d.bucket === 'day3_5')!.concepts.map((c) => c.conceptId)).toEqual(['b'])
+    expect(r.recoveryPlan.find((d) => d.bucket === 'day6_7')!.concepts.map((c) => c.conceptId)).toEqual(['b'])
+    // day1_2 = weak prereq c (startable + problems + not a risk concept)
+    expect(r.recoveryPlan.find((d) => d.bucket === 'day1_2')!.concepts.map((c) => c.conceptId)).toEqual(['c'])
+    // today action = first startable+playable: risk b
+    expect(r.todayAction).toMatchObject({ conceptId: 'b', kind: 'review' })
+  })
+
+  it('todayAction falls back to frontier when no risk/prereq is startable+playable', () => {
+    const r = buildDiagnosticSampleReport({
+      ...base,
+      attempts: [{ conceptId: 'b', correct: false }],
+      effByConcept: { b: 0.4 },
+      startableIds: ['e'], // b not startable
+      conceptsWithProblems: ['e'],
+      weakAsc: [],
+      frontier: ['e'],
+    })
+    expect(r.todayAction).toMatchObject({ conceptId: 'e', kind: 'frontier' })
+  })
+
+  it('todayAction is null when nothing is startable + problem-backed', () => {
+    const r = buildDiagnosticSampleReport({
+      ...base,
+      attempts: [{ conceptId: 'b', correct: false }],
+      effByConcept: { b: 0.4 },
+      startableIds: [],
+      conceptsWithProblems: [],
+      frontier: ['b'],
+    })
+    expect(r.todayAction).toBeNull()
+  })
+
+  it("state='empty' with no diagnostic and no attempts", () => {
+    const r = buildDiagnosticSampleReport({ ...base, hasDiagnostic: false })
+    expect(r.state).toBe('empty')
+    expect(r.riskConcepts).toEqual([])
+  })
+
+  it("state='sparse' when diagnostic done but no risk concepts surface", () => {
+    const r = buildDiagnosticSampleReport({
+      ...base,
+      attempts: [{ conceptId: 'a', correct: true }],
+      effByConcept: { a: 0.9 }, // above threshold, correct -> not risky
+    })
+    expect(r.state).toBe('sparse')
+    expect(r.conclusion).toContain('초기 진단 기준')
+  })
+
+  it("state='ok' names the top risk cautiously; conclusion has 초기 진단 기준 and no forbidden words", () => {
+    const r = buildDiagnosticSampleReport({
+      ...base,
+      attempts: [{ conceptId: 'b', correct: false }],
+      effByConcept: { b: 0.4 },
+    })
+    expect(r.state).toBe('ok')
+    expect(r.conclusion).toContain('초기 진단 기준')
+    expect(r.conclusion).toContain('곱셈공식')
+    expect(r.conclusion).toContain('흔들려 보여요') // hedged, not definitive
+    expect(r.conclusion).not.toMatch(/점수|등급|상승|보장/)
   })
 })

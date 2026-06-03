@@ -385,3 +385,158 @@ export function buildWeeklyParentReport(input: WeeklyReportInput): WeeklyParentR
     state,
   }
 }
+
+// ---------- diagnostic sample report (free, post-onboarding; B2C) ----------
+// Pure builder for the diagnostic-based initial report shown on /dashboard first
+// entry, before a week of data exists. Sentence-first, hedged ("초기 진단 기준",
+// "흔들려 보여요"), never claims score/grade gains. CTA + recovery plan target
+// only concepts that are startable AND have problems, so the reused server action
+// (startConceptSession) never breaks on a locked or problem-less concept.
+
+export type DiagnosticReportState = 'empty' | 'sparse' | 'ok'
+
+export interface DiagnosticRiskConcept {
+  conceptId: string
+  name: string
+  effectiveMastery: number // 0..1
+  wrongInDiagnostic: boolean // got it wrong in the diagnostic session
+  blocksDownstream: number // how many concepts list this as a prerequisite
+}
+
+export interface DiagnosticRecoveryAction {
+  conceptId: string
+  name: string
+  kind: 'review' | 'prereq' | 'frontier'
+  reason: string // parent-facing sentence
+}
+
+export interface RecoveryPlanDay {
+  bucket: 'day1_2' | 'day3_5' | 'day6_7'
+  label: string
+  focus: string
+  concepts: { conceptId: string; name: string }[] // problem-backed only
+}
+
+export interface DiagnosticReportInput {
+  diagnosticDate: string | null // KST date of the diagnostic session
+  hasDiagnostic: boolean
+  attempts: { conceptId: string; correct: boolean }[] // from the diagnostic session
+  effByConcept: Record<string, number> // current effective mastery (attempted concepts)
+  blocksDownstreamById: Record<string, number>
+  startableIds: string[] // concepts that pass isStartable (frontier ∪ recommended)
+  conceptsWithProblems: string[] // concepts that have at least one reviewed problem
+  weakAsc: string[] // non-locked, below-threshold concepts, weakest first
+  frontier: string[]
+  nameById: Record<string, string>
+  threshold: number
+}
+
+export interface DiagnosticParentSampleReport {
+  state: DiagnosticReportState
+  diagnosticDate: string | null
+  riskConcepts: DiagnosticRiskConcept[] // up to 3
+  recoveryPlan: RecoveryPlanDay[] // 3 buckets
+  todayAction: DiagnosticRecoveryAction | null
+  conclusion: string // rule-based, hedged, contains "초기 진단 기준"
+}
+
+function diagnosticConclusion(
+  state: DiagnosticReportState,
+  riskConcepts: DiagnosticRiskConcept[],
+): string {
+  if (state === 'empty') {
+    return '초기 진단 기준: 아직 진단 데이터가 없어요. 미니 진단을 먼저 해볼까요?'
+  }
+  if (state === 'sparse') {
+    return '초기 진단 기준: 아직 또렷한 신호는 보이지 않아요. 학습을 이어가면 더 정확해져요.'
+  }
+  return `초기 진단 기준: ${riskConcepts[0].name}이(가) 조금 흔들려 보여요. 아래 7일 플랜으로 시작해 보세요.`
+}
+
+export function buildDiagnosticSampleReport(
+  input: DiagnosticReportInput,
+): DiagnosticParentSampleReport {
+  const { effByConcept, blocksDownstreamById, nameById, threshold } = input
+  const startable = new Set(input.startableIds)
+  const withProblems = new Set(input.conceptsWithProblems)
+
+  const wrong = new Set<string>()
+  const attempted = new Set<string>()
+  for (const a of input.attempts) {
+    attempted.add(a.conceptId)
+    if (!a.correct) wrong.add(a.conceptId)
+  }
+
+  // Risk pool: attempted concepts that were wrong OR are below threshold.
+  const riskConcepts: DiagnosticRiskConcept[] = [...attempted]
+    .filter((id) => wrong.has(id) || (effByConcept[id] ?? 0) < threshold)
+    .map((id) => ({
+      conceptId: id,
+      name: nameOf(id, nameById),
+      effectiveMastery: effByConcept[id] ?? 0,
+      wrongInDiagnostic: wrong.has(id),
+      blocksDownstream: blocksDownstreamById[id] ?? 0,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.wrongInDiagnostic) - Number(a.wrongInDiagnostic) || // ① wrong first
+        a.effectiveMastery - b.effectiveMastery || // ② weakest mastery first
+        b.blocksDownstream - a.blocksDownstream, // ③ blocks more downstream first
+    )
+    .slice(0, 3)
+
+  const riskIds = new Set(riskConcepts.map((r) => r.conceptId))
+  const playable = (id: string) => withProblems.has(id)
+  const toC = (id: string) => ({ conceptId: id, name: nameOf(id, nameById) })
+
+  // Recovery plan — only problem-backed concepts (so a session is actually startable).
+  const day12 = input.weakAsc.filter((id) => startable.has(id) && playable(id) && !riskIds.has(id)).slice(0, 2)
+  const day35 = riskConcepts.map((r) => r.conceptId).filter(playable).slice(0, 3)
+  const recoveryPlan: RecoveryPlanDay[] = [
+    { bucket: 'day1_2', label: 'Day 1–2', focus: '가장 약한 기초 개념부터 다져요.', concepts: day12.map(toC) },
+    { bucket: 'day3_5', label: 'Day 3–5', focus: '진단에서 흔들린 개념을 직접 풀어봐요.', concepts: day35.map(toC) },
+    { bucket: 'day6_7', label: 'Day 6–7', focus: '다시 점검하며 복습해요.', concepts: day35.map(toC) },
+  ]
+
+  // Today action: first concept that is BOTH startable and problem-backed,
+  // scanning risk → weak prereq → frontier. Guarantees startConceptSession won't
+  // reject (isStartable) or throw (no problems).
+  const candidates: { id: string; kind: DiagnosticRecoveryAction['kind']; reason: string }[] = [
+    ...riskConcepts.map((r) => ({
+      id: r.conceptId,
+      kind: 'review' as const,
+      reason: '진단에서 흔들린 개념이에요. 오늘 바로 복습해 보세요.',
+    })),
+    ...input.weakAsc.map((id) => ({
+      id,
+      kind: 'prereq' as const,
+      reason: '다음 단계의 토대가 되는 개념이에요. 먼저 다지면 이후 학습이 수월해져요.',
+    })),
+    ...input.frontier.map((id) => ({
+      id,
+      kind: 'frontier' as const,
+      reason: '준비가 된 다음 개념이에요. 새로 시작하기 좋은 시점이에요.',
+    })),
+  ]
+  let todayAction: DiagnosticRecoveryAction | null = null
+  for (const c of candidates) {
+    if (startable.has(c.id) && playable(c.id)) {
+      todayAction = { conceptId: c.id, name: nameOf(c.id, nameById), kind: c.kind, reason: c.reason }
+      break
+    }
+  }
+
+  let state: DiagnosticReportState
+  if (!input.hasDiagnostic && attempted.size === 0) state = 'empty'
+  else if (riskConcepts.length === 0) state = 'sparse'
+  else state = 'ok'
+
+  return {
+    state,
+    diagnosticDate: input.diagnosticDate,
+    riskConcepts,
+    recoveryPlan,
+    todayAction,
+    conclusion: diagnosticConclusion(state, riskConcepts),
+  }
+}
