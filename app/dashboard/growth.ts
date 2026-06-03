@@ -11,6 +11,8 @@ import {
   kstDate,
   todayKst,
   startOfTodayUtc,
+  subDays,
+  collapseDailyMastery,
   type DashboardGrowth,
 } from '@/lib/growth'
 
@@ -26,7 +28,7 @@ export async function loadGrowth(): Promise<DashboardGrowth> {
   const today = todayKst()
   const startUtc = startOfTodayUtc(today)
 
-  const [{ data: sessions }, { data: todayAttempts }] = await Promise.all([
+  const [{ data: sessions }, { data: todayAttempts }, { data: snapshots }] = await Promise.all([
     supabase
       .from('learning_sessions')
       .select('ended_at, summary')
@@ -34,6 +36,12 @@ export async function loadGrowth(): Promise<DashboardGrowth> {
       .not('ended_at', 'is', null)
       .order('ended_at', { ascending: false }),
     supabase.from('attempts').select('concept_id').eq('user_id', user.id).gte('created_at', startUtc),
+    supabase
+      .from('growth_snapshots')
+      .select('date, mastery_avg')
+      .eq('user_id', user.id)
+      .gte('date', subDays(today, 29))
+      .order('date', { ascending: true }),
   ])
 
   const completed = sessions ?? []
@@ -74,5 +82,9 @@ export async function loadGrowth(): Promise<DashboardGrowth> {
     todayConceptIds,
   })
 
-  return { todayDelta, streak, quest, recent, nameById }
+  const curve = collapseDailyMastery(
+    (snapshots ?? []).map((s) => ({ date: s.date, masteryAvg: s.mastery_avg })),
+  )
+
+  return { todayDelta, streak, quest, recent, curve, nameById }
 }

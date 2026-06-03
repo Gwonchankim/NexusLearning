@@ -18,6 +18,11 @@ export function prevDate(ymd: string): string {
   return new Date(new Date(`${ymd}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10)
 }
 
+/** N calendar days before a "YYYY-MM-DD" string (KST date arithmetic). */
+export function subDays(ymd: string, n: number): string {
+  return new Date(new Date(`${ymd}T00:00:00Z`).getTime() - n * 86_400_000).toISOString().slice(0, 10)
+}
+
 /** UTC ISO instant of KST midnight for `today` — use as a `gte` filter for "today (KST)". */
 export function startOfTodayUtc(today: string = todayKst()): string {
   return new Date(`${today}T00:00:00+09:00`).toISOString()
@@ -144,6 +149,47 @@ export function computeStreak(
   return { current, todayDone }
 }
 
+// ---------- growth snapshots (daily persistence + long-term curve) ----------
+
+/**
+ * Average mastery per unit. Used at session end to build per-unit growth_snapshots
+ * rows from { unitId, mastery } pairs (mastery already effective, 0..1). Empty -> [].
+ */
+export function aggregateUnitMastery(
+  rows: { unitId: string; mastery: number }[],
+): { unitId: string; masteryAvg: number }[] {
+  const byUnit = new Map<string, { sum: number; count: number }>()
+  for (const r of rows) {
+    const acc = byUnit.get(r.unitId) ?? { sum: 0, count: 0 }
+    acc.sum += r.mastery
+    acc.count += 1
+    byUnit.set(r.unitId, acc)
+  }
+  return [...byUnit.entries()].map(([unitId, { sum, count }]) => ({
+    unitId,
+    masteryAvg: sum / count,
+  }))
+}
+
+/**
+ * Collapse per-unit daily snapshot rows into one point per date (mean across units),
+ * sorted by date ascending. Drives the dashboard long-term curve. Empty -> [].
+ */
+export function collapseDailyMastery(
+  rows: { date: string; masteryAvg: number }[],
+): { date: string; masteryAvg: number }[] {
+  const byDate = new Map<string, { sum: number; count: number }>()
+  for (const r of rows) {
+    const acc = byDate.get(r.date) ?? { sum: 0, count: 0 }
+    acc.sum += r.masteryAvg
+    acc.count += 1
+    byDate.set(r.date, acc)
+  }
+  return [...byDate.entries()]
+    .map(([date, { sum, count }]) => ({ date, masteryAvg: sum / count }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
 // ---------- dashboard growth shape ----------
 
 export interface DashboardGrowth {
@@ -151,5 +197,6 @@ export interface DashboardGrowth {
   streak: StreakInfo
   quest: TodayQuest
   recent: { date: string; delta: number }[] // last 7 completed sessions, chronological
+  curve: { date: string; masteryAvg: number }[] // last 30 days, one point/date, date asc
   nameById: Record<string, string>
 }
