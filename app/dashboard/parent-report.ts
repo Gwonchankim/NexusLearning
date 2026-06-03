@@ -90,7 +90,7 @@ export async function loadParentWeeklyReport(): Promise<WeeklyParentReport> {
     weekEnd: today,
     sessions: completed,
     mastery,
-    reviewedThisWeek: reviewedSet.size,
+    attemptedThisWeek: reviewedSet.size,
     dueConceptIds,
     weakAsc,
     frontier: rec.frontier,
