@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { gradeAnswer, type AnswerType } from '@/lib/grading'
 import { updateMastery, effectiveMastery, type Difficulty, type MasteryState } from '@/lib/adaptive'
-import { summarizeSessionDeltas } from '@/lib/growth'
+import { summarizeSessionDeltas, aggregateUnitMastery, todayKst } from '@/lib/growth'
 import { updateSchedule, SCHEDULER_DEFAULTS, type ReviewState } from '@/lib/scheduler'
 import type { SessionMode } from '@/lib/session/select'
 import { parseProblemIds, checkSubmission } from '@/lib/session/validate'
@@ -298,6 +298,55 @@ export async function endSession(sessionId: string): Promise<SessionSummary> {
     .update({ ended_at: endedAt.toISOString(), summary })
     .eq('id', sessionId)
   if (error) throw new Error(error.message)
+
+  // Best-effort: snapshot today's per-unit average mastery for the long-term
+  // growth curve. Only for practice sessions that had attempts. A failure here
+  // must never break the session-completion payoff, so it's wrapped and ignored.
+  // growth_snapshots is owner-read / service_role-write, so the upsert uses the
+  // admin client; the reads stay on the user client (RLS allows owner reads).
+  if (prev.mode === 'practice' && problemCount > 0) {
+    try {
+      const { data: mastery } = await supabase
+        .from('concept_mastery')
+        .select('concept_id, mastery, last_reviewed_at')
+        .eq('user_id', user.id)
+      const masteryRows = mastery ?? []
+      if (masteryRows.length > 0) {
+        const { data: cs } = await supabase
+          .from('concepts')
+          .select('id, unit_id')
+          .in(
+            'id',
+            masteryRows.map((m) => m.concept_id),
+          )
+        const unitByConcept = new Map((cs ?? []).map((c) => [c.id, c.unit_id]))
+        const rows = masteryRows.flatMap((m) => {
+          const unitId = unitByConcept.get(m.concept_id)
+          if (!unitId) return []
+          const eff = effectiveMastery(
+            { mastery: m.mastery, attemptsCount: 0, lastReviewedAt: m.last_reviewed_at },
+            endedAt,
+          )
+          return [{ unitId, mastery: eff }]
+        })
+        const date = todayKst(endedAt)
+        const snapshots = aggregateUnitMastery(rows).map((u) => ({
+          user_id: user.id,
+          date,
+          unit_id: u.unitId,
+          mastery_avg: u.masteryAvg,
+        }))
+        if (snapshots.length > 0) {
+          const admin = createAdminClient()
+          await admin
+            .from('growth_snapshots')
+            .upsert(snapshots, { onConflict: 'user_id,date,unit_id' })
+        }
+      }
+    } catch {
+      // best-effort: never break session completion on snapshot failure
+    }
+  }
 
   return {
     mode: prev.mode ?? 'practice',

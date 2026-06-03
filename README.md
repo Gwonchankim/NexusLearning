@@ -176,8 +176,9 @@ npm run db:reset                                          # seed.sql → seed_pr
 - **스트릭**: 완료 세션이 있는 날의 연속 일수(KST).
 - **오늘의 퀘스트**: 신규 2 + 복습 3(가용량에 따라 가변, `locked` 제외). 미완 항목은 `startQuestSession`으로 해당 개념 학습을 시작합니다.
 - **최근 변화**: 최근 7개 완료 세션의 성장 델타를 경량 SVG 스파크라인으로 표시.
+- **장기 성장 추이**: 완료된 practice 세션 종료 시 그날(KST)의 **단원별 평균 숙련도**(학습한 개념의 `effectiveMastery` 평균)를 `growth_snapshots`에 best-effort upsert하고, 대시보드에 **최근 30일 곡선**(경량 SVG)을 표시합니다. 쓰기는 `service_role`(admin 클라이언트)로만 수행하며, 실패해도 세션 완료 페이오프를 막지 않습니다. diagnostic 세션과 문제를 풀지 않은 세션은 기록하지 않습니다. 현재 MVP는 단원이 1개라 곡선의 최신점은 상단 "평균 숙련도 (학습한 개념)" 카드와 사실상 일치합니다.
 - **성장 수치 정의**: `sessionMasteryDelta` = 그 세션에서 실제로 푼 개념들의 `effectiveMastery` 변화(after−before)의 **부호 있는 평균**(없으면 null → 헤드라인 생략). 세션 시작 시 `learning_sessions.summary.startMastery` 스냅샷을 저장해 서버가 종료 시 비교합니다.
-- 순수 로직(KST·스트릭·퀘스트·델타)은 `lib/growth`(Vitest)로 검증합니다. `growth_snapshots` 일별 영속화·장기 성장곡선은 후속 PR 과제입니다.
+- 순수 로직(KST·스트릭·퀘스트·델타·단원 집계)은 `lib/growth`(Vitest)로 검증합니다. 단원별 multi-line 곡선은 후속 과제로 남아 있습니다.
 
 ---
 

@@ -2,11 +2,14 @@ import { describe, it, expect } from 'vitest'
 import {
   kstDate,
   prevDate,
+  subDays,
   startOfTodayUtc,
   pp,
   summarizeSessionDeltas,
   buildTodayQuest,
   computeStreak,
+  aggregateUnitMastery,
+  collapseDailyMastery,
 } from './index'
 
 describe('KST utils', () => {
@@ -17,6 +20,12 @@ describe('KST utils', () => {
   it('prevDate steps back one day across month boundary', () => {
     expect(prevDate('2026-05-26')).toBe('2026-05-25')
     expect(prevDate('2026-06-01')).toBe('2026-05-31')
+  })
+  it('subDays steps back N days, including across month boundaries', () => {
+    expect(subDays('2026-06-03', 0)).toBe('2026-06-03')
+    expect(subDays('2026-06-03', 1)).toBe('2026-06-02')
+    expect(subDays('2026-06-03', 29)).toBe('2026-05-05')
+    expect(subDays('2026-03-01', 1)).toBe('2026-02-28')
   })
   it('startOfTodayUtc is KST midnight as UTC', () => {
     expect(startOfTodayUtc('2026-05-26')).toBe('2026-05-25T15:00:00.000Z')
@@ -123,5 +132,55 @@ describe('computeStreak', () => {
   })
   it('is zero when neither today nor yesterday present', () => {
     expect(computeStreak(['2026-05-20'], '2026-05-25')).toEqual({ current: 0, todayDone: false })
+  })
+})
+
+describe('aggregateUnitMastery', () => {
+  it('returns [] for empty input', () => {
+    expect(aggregateUnitMastery([])).toEqual([])
+  })
+  it('averages a single unit', () => {
+    expect(
+      aggregateUnitMastery([
+        { unitId: 'u1', mastery: 0.4 },
+        { unitId: 'u1', mastery: 0.6 },
+      ]),
+    ).toEqual([{ unitId: 'u1', masteryAvg: expect.closeTo(0.5, 10) }])
+  })
+  it('averages independently per unit', () => {
+    const r = aggregateUnitMastery([
+      { unitId: 'u1', mastery: 0.2 },
+      { unitId: 'u2', mastery: 0.8 },
+      { unitId: 'u1', mastery: 0.4 },
+    ])
+    expect(r).toEqual([
+      { unitId: 'u1', masteryAvg: expect.closeTo(0.3, 10) },
+      { unitId: 'u2', masteryAvg: expect.closeTo(0.8, 10) },
+    ])
+  })
+})
+
+describe('collapseDailyMastery', () => {
+  it('returns [] for empty input', () => {
+    expect(collapseDailyMastery([])).toEqual([])
+  })
+  it('passes a single unit per date through, sorted ascending', () => {
+    expect(
+      collapseDailyMastery([
+        { date: '2026-06-02', masteryAvg: 0.5 },
+        { date: '2026-06-01', masteryAvg: 0.3 },
+      ]),
+    ).toEqual([
+      { date: '2026-06-01', masteryAvg: 0.3 },
+      { date: '2026-06-02', masteryAvg: 0.5 },
+    ])
+  })
+  it('averages multiple units on the same date', () => {
+    expect(
+      collapseDailyMastery([
+        { date: '2026-06-01', masteryAvg: 0.4 },
+        { date: '2026-06-01', masteryAvg: 0.6 },
+      ]),
+    ).toEqual([{ date: '2026-06-01', masteryAvg: expect.closeTo(0.5, 10) }])
   })
 })

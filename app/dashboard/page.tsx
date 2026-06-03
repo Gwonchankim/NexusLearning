@@ -8,6 +8,7 @@ import type { NodeStatus } from '@/lib/graph'
 import KnowledgeMap from './KnowledgeMap'
 import GrowthCards from './GrowthCards'
 import RecentSparkline from './RecentSparkline'
+import GrowthCurve from './GrowthCurve'
 import { loadGrowth } from './growth'
 
 function pct(v: number): string {
@@ -84,6 +85,15 @@ export default async function DashboardPage() {
               <p className="text-xs uppercase tracking-wide text-gray-400">최근 성장 변화</p>
               <div className="mt-2">
                 <RecentSparkline recent={growth.recent} />
+              </div>
+            </section>
+          )}
+
+          {growth && growth.curve.length >= 2 && (
+            <section className="mt-6 rounded-lg border border-gray-200 p-4">
+              <p className="text-xs uppercase tracking-wide text-gray-400">장기 성장 추이 (최근 30일)</p>
+              <div className="mt-2">
+                <GrowthCurve curve={growth.curve} />
               </div>
             </section>
           )}
