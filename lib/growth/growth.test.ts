@@ -5,6 +5,7 @@ import {
   subDays,
   startOfTodayUtc,
   pp,
+  withJosa,
   summarizeSessionDeltas,
   buildTodayQuest,
   computeStreak,
@@ -38,6 +39,21 @@ describe('KST utils', () => {
     expect(pp(0.123)).toBe(12)
     expect(pp(0.125)).toBe(13)
     expect(pp(-0.04)).toBe(-4)
+  })
+})
+
+describe('withJosa', () => {
+  it('uses the with-batchim particle when the last syllable has a final consonant', () => {
+    expect(withJosa('곱셈공식', '이', '가')).toBe('곱셈공식이') // 식 has 받침
+    expect(withJosa('인수분해식', '은', '는')).toBe('인수분해식은')
+  })
+  it('uses the no-batchim particle when the last syllable has no final consonant', () => {
+    expect(withJosa('다항식의 정리', '이', '가')).toBe('다항식의 정리가') // 리 has no 받침
+    expect(withJosa('나머지', '은', '는')).toBe('나머지는')
+  })
+  it('falls back to the no-batchim particle for non-Hangul endings', () => {
+    expect(withJosa('factoring', '이', '가')).toBe('factoring가')
+    expect(withJosa('A', '은', '는')).toBe('A는')
   })
 })
 
@@ -195,7 +211,7 @@ describe('buildWeeklyParentReport', () => {
     weekEnd: '2026-06-03',
     sessions: [],
     mastery: [],
-    reviewedThisWeek: 0,
+    attemptedThisWeek: 0,
     dueConceptIds: [],
     weakAsc: [],
     frontier: [],
@@ -261,7 +277,7 @@ describe('buildWeeklyParentReport', () => {
     ])
   })
 
-  it('reviewAdherence is counts only (overdueNow from due flags, reviewedThisWeek passthrough)', () => {
+  it('reviewAdherence is counts only (overdueNow from due flags, attemptedThisWeek passthrough)', () => {
     const r = buildWeeklyParentReport({
       ...base,
       sessions: [{ sessionMasteryDelta: 0.1, conceptDeltas: [{ conceptId: 'a', delta: 0.1 }] }],
@@ -270,9 +286,9 @@ describe('buildWeeklyParentReport', () => {
         { conceptId: 'b', effectiveMastery: 0.4, due: true, recentWrong: 0 },
         { conceptId: 'c', effectiveMastery: 0.9, due: false, recentWrong: 0 },
       ],
-      reviewedThisWeek: 4,
+      attemptedThisWeek: 4,
     })
-    expect(r.reviewAdherence).toEqual({ overdueNow: 2, reviewedThisWeek: 4 })
+    expect(r.reviewAdherence).toEqual({ overdueNow: 2, attemptedThisWeek: 4 })
     expect(r).not.toHaveProperty('reviewAdherence.rate')
   })
 

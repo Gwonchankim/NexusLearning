@@ -89,6 +89,11 @@ export default async function DashboardPage() {
 
           {growth && <GrowthCards growth={growth} />}
 
+          {/* Parent value cards sit right under the growth cards (compact, gated):
+              diagnostic initial report before a full week, weekly report after. */}
+          {showWeekly && parentReport && <ParentWeeklyReport report={parentReport} />}
+          {diagnosticReport && <DiagnosticSampleReport report={diagnosticReport} />}
+
           {growth && growth.recent.length >= 2 && (
             <section className="mt-6 rounded-lg border border-gray-200 p-4">
               <p className="text-xs uppercase tracking-wide text-gray-400">최근 성장 변화</p>
@@ -158,9 +163,6 @@ export default async function DashboardPage() {
               />
             </div>
           </section>
-
-          {showWeekly && parentReport && <ParentWeeklyReport report={parentReport} />}
-          {diagnosticReport && <DiagnosticSampleReport report={diagnosticReport} />}
 
           <section className="mt-8 space-y-2">
             {concepts.map((c) => {

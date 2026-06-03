@@ -33,6 +33,19 @@ export function pp(x: number): number {
   return Math.round(x * 100)
 }
 
+/**
+ * Append the correct Korean particle to a word by its final-consonant (받침).
+ * `withBatchim` is used when the last Hangul syllable has a final consonant
+ * (e.g. 이/은/을), `withoutBatchim` otherwise (가/는/를). Non-Hangul endings
+ * fall back to `withoutBatchim`.
+ */
+export function withJosa(word: string, withBatchim: string, withoutBatchim: string): string {
+  const code = word.charCodeAt(word.length - 1)
+  const isHangulSyllable = code >= 0xac00 && code <= 0xd7a3
+  const hasBatchim = isHangulSyllable && (code - 0xac00) % 28 !== 0
+  return word + (hasBatchim ? withBatchim : withoutBatchim)
+}
+
 // ---------- session mastery delta ----------
 
 export interface ConceptDelta {
@@ -239,7 +252,7 @@ export interface WeeklyReportInput {
   sessions: { sessionMasteryDelta: number | null; conceptDeltas: { conceptId: string; delta: number }[] }[]
   // current per-concept state (effectiveMastery already computed by the loader)
   mastery: { conceptId: string; effectiveMastery: number; due: boolean; recentWrong: number }[]
-  reviewedThisWeek: number // distinct concepts attempted in the last 7 days (count only — no rate)
+  attemptedThisWeek: number // distinct concepts attempted in the last 7 days (count only — no rate)
   // recommendation pools for the action plan (from loadRecommendation)
   dueConceptIds: string[]
   weakAsc: string[] // non-locked, below-threshold concepts, weakest first
@@ -255,7 +268,7 @@ export interface WeeklyParentReport {
   weeklyMasteryDelta: number | null // Σ sessionMasteryDelta (null if every session lacked a delta)
   topGrowth: ReportConceptChange[] // up to 3
   riskConcepts: ReportRiskConcept[] // up to 3
-  reviewAdherence: { overdueNow: number; reviewedThisWeek: number } // counts only — no rate (no historical due data)
+  reviewAdherence: { overdueNow: number; attemptedThisWeek: number } // counts only — no rate (no historical due data)
   actions: ReportActionItem[] // up to 3
   conclusion: string // rule-based, hedged (no AI)
   state: ReportState
@@ -340,14 +353,14 @@ function weeklyConclusion(
   }
   if (state === 'sparse') {
     if (riskConcepts.length > 0) {
-      return `아직 이번 주 성장을 판단할 데이터가 부족해요. 다만 ${riskConcepts[0].name}은(는) 한 번 더 점검이 필요해 보여요.`
+      return `아직 이번 주 성장을 판단할 데이터가 부족해요. 다만 ${withJosa(riskConcepts[0].name, '은', '는')} 한 번 더 점검이 필요해 보여요.`
     }
     return '아직 판단할 데이터가 부족합니다. 며칠 더 학습하면 주간 변화를 보여드릴게요.'
   }
-  const grew = `이번 주는 ${topGrowth[0].name}이(가) 안정됐어요.`
+  const grew = `이번 주는 ${withJosa(topGrowth[0].name, '이', '가')} 안정됐어요.`
   const risk =
     riskConcepts.length > 0
-      ? ` 다만 ${riskConcepts[0].name}은(는) 아직 흔들리고 있어 다음 주 복습이 필요해요.`
+      ? ` 다만 ${withJosa(riskConcepts[0].name, '은', '는')} 아직 흔들리고 있어 다음 주 복습이 필요해요.`
       : ' 전반적으로 기반이 탄탄해지고 있어요.'
   return grew + risk
 }
@@ -363,7 +376,7 @@ export function buildWeeklyParentReport(input: WeeklyReportInput): WeeklyParentR
   const riskConcepts = rankRiskConcepts(input.mastery, input.nameById, input.threshold, 3)
   const reviewAdherence = {
     overdueNow: input.mastery.filter((m) => m.due).length,
-    reviewedThisWeek: input.reviewedThisWeek,
+    attemptedThisWeek: input.attemptedThisWeek,
   }
   const actions = planActions(input, 3)
 
@@ -450,7 +463,7 @@ function diagnosticConclusion(
   if (state === 'sparse') {
     return '초기 진단 기준: 아직 또렷한 신호는 보이지 않아요. 학습을 이어가면 더 정확해져요.'
   }
-  return `초기 진단 기준: ${riskConcepts[0].name}이(가) 조금 흔들려 보여요. 아래 7일 플랜으로 시작해 보세요.`
+  return `초기 진단 기준: ${withJosa(riskConcepts[0].name, '이', '가')} 조금 흔들려 보여요. 아래 7일 플랜으로 시작해 보세요.`
 }
 
 export function buildDiagnosticSampleReport(

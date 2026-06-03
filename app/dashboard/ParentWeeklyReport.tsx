@@ -76,9 +76,7 @@ export default function ParentWeeklyReport({ report }: { report: WeeklyParentRep
                 {report.actions.map((a) => (
                   <li key={a.conceptId} className="text-sm text-gray-700">
                     <span className="font-medium text-gray-900">{a.name}</span>
-                    <span className="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-                      {KIND_LABEL[a.kind]}
-                    </span>
+                    <span className="text-gray-500"> · {KIND_LABEL[a.kind]}</span>
                     <span className="mt-0.5 block text-xs text-gray-500">{a.reason}</span>
                   </li>
                 ))}
@@ -92,8 +90,8 @@ export default function ParentWeeklyReport({ report }: { report: WeeklyParentRep
           <div className="rounded-lg border border-gray-200 p-4">
             <p className="text-xs uppercase tracking-wide text-gray-400">복습 현황</p>
             <p className="mt-2 text-sm text-gray-700">
-              지금 복습이 밀린 개념 <span className="font-semibold">{report.reviewAdherence.overdueNow}개</span> · 이번 주 복습한 개념{' '}
-              <span className="font-semibold">{report.reviewAdherence.reviewedThisWeek}개</span>
+              지금 복습이 밀린 개념 <span className="font-semibold">{report.reviewAdherence.overdueNow}개</span> · 이번 주 풀이 기록이 있는 개념{' '}
+              <span className="font-semibold">{report.reviewAdherence.attemptedThisWeek}개</span>
             </p>
           </div>
         </div>
