@@ -4,7 +4,7 @@
 
 스택: **Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Supabase (Postgres · Auth · RLS)**
 
-> 현재 단계는 **PR6 (계측) 완료** 입니다. PR5 성장 페이오프·오늘 할 일 위에 **루프 완주/CTA 전환/D1·D7 리텐션 계측**(`analytics_events` + `report_metrics`)이 더해졌고, 보안 하드닝(0006)으로 `answer/solution`의 DB/REST 노출을 차단했습니다. AI 실시간 생성·결제·캐릭터는 아직 포함되어 있지 않습니다. Staging 배포 가능 여부는 [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)로 검증하고, production 배포 절차는 [`PRODUCTION_HANDOFF.md`](./PRODUCTION_HANDOFF.md)를 따릅니다.
+> 현재 단계는 **PR6 (계측) 완료** 입니다. PR5 성장 페이오프·오늘 할 일 위에 **루프 완주/CTA 전환/D1·D7 리텐션 계측**(`analytics_events` + `report_metrics`)이 더해졌고, 보안 하드닝(0006)으로 `answer/solution`의 DB/REST 노출을 차단했습니다. AI 실시간 생성·결제·캐릭터는 아직 포함되어 있지 않습니다. 배포 전 유료 가치와 제품 포지션은 [`PARENT_B2C_STRATEGY_BRIEF.md`](./PARENT_B2C_STRATEGY_BRIEF.md)를 기준으로 재점검하고, Staging 배포 가능 여부는 [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)로 검증하며, production 배포 절차는 [`PRODUCTION_HANDOFF.md`](./PRODUCTION_HANDOFF.md)를 따릅니다.
 
 ---
 
